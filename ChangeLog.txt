@@ -1,6 +1,15 @@
 Revision history
 ================
 
+Rev 1.0.094 (19/01/2016)
+-----------------------
+- added support for manually setting head 'soft' id (M795) superseding
+  hardware product id
+
+
+...after a while...
+
+
 Rev 1.0.007 (26/01/2015)
 -----------------------
 - review of Autobed leveling procedure. Fixing of probed points' X and Y coordinates signs
