@@ -1,6 +1,16 @@
 ==========================
-FABlin Firmware
+FABlin Firmware (-at fork)
 ==========================
+
+### Version: 1.0.0095.1-at0.4 - 2016-08-13
+* GCode parser rewritten using tokens and a more robust line validation
+* Some code cleanup and optimization, in particular the TIMER1_ISR. The idea is to optimize (if possibile) the ISR which tends to be not fast enough to handle the acceleration/deceleration ramps on high steps per unit values.
+* Patches to implement some custom modifications to the machine (which doesn't break the compatibility with the official trunk by the way)
+
+IMPORTANT: Compatibility is NOT guaranteed with machines different than the FABtotum Personal Fabricator.
+
+----------------------------------
+
 FABtotum Marlin Derivate Firmware.
 
 This is the FABlin, a Marlin Derivate Firmware. Marlin was originally created by Erik Zalm (https://github.com/ErikZalm/Marlin)
@@ -24,7 +34,7 @@ Supported G-codes: http://forum.fabtotum.cc/showthread.php?1364-Supported-Gcodes
 * Fixed G28 inability to probe the center of the work-area when z_max_endstop is triggered
 * Sounds alerts revamp to be more clear, silent mode can be triggered on some commands that usually emit sound.
 *  M735 S1-0 enable /disable silent mode (less beeps all around)
-* If door safety is enabled, opening the door will trigger an instant emergency stop of all movement and routines, reverting the unit to a safe situation. Door safety can still be enabled or disabled from the FABUI’s settings>hardware menu.
+* If door safety is enabled, opening the door will trigger an instant emergency stop of all movement and routines, reverting the unit to a safe situation. Door safety can still be enabled or disabled from the FABUIâ€™s settings>hardware menu.
 * Inactivity timer changed to 10 minutes for longer heating times.
 * Fan management for V1 and V2 heads (SELECTABLE_AUTO_FAN_ON_TEMP_CHANGE behaviour modified: V2 heads won't have mandatory auto-cooling unless wanted, while V1 will have auto-cooling unless configured as disabled.) This reduces the heating time with V2 heads while avoiding clogging due to prolonged overheating in V1 heads.
 * Added optional external power supply shutdown procedure (M786).
