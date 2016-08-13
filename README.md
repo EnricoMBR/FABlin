@@ -2,12 +2,13 @@
 FABlin Firmware (-at fork)
 ==========================
 
+IMPORTANT: Compatibility is NOT guaranteed with machines different than the FABtotum Personal Fabricator.
+
 ### Version: 1.0.0095.1-at0.4 - 2016-08-13
 * GCode parser rewritten using tokens and a more robust line validation
-* Some code cleanup and optimization, in particular the TIMER1_ISR. The idea is to optimize (if possibile) the ISR which tends to be not fast enough to handle the acceleration/deceleration ramps on high steps per unit values.
+* Baudrate is back to 115200. 250000 baud is a non-standard baudrate not handled by some GNU tools and third-party libraries used in the FAB-UI and, apart of that, brings negligible (if none) increase in performance.
+* Some code cleanup and optimization, in particular the TIMER1_ISR. The idea is to optimize (if possibile) the ISR that drives the steppers which tends to be not fast enough to handle the acceleration/deceleration ramps on high steps per unit values.
 * Patches to implement some custom modifications to the machine (which doesn't break the compatibility with the official trunk by the way)
-
-IMPORTANT: Compatibility is NOT guaranteed with machines different than the FABtotum Personal Fabricator.
 
 ----------------------------------
 
