@@ -15,7 +15,7 @@
 // User-specified version info of this build to display in [Pronterface, etc] terminal window during
 // startup. Implementation of an idea by Prof Braino to inform user that any changes made to this
 // build by the user have been successfully uploaded into firmware.
-#define STRING_BUILD_VERSION  "V 1.0.0095.1"
+#define STRING_BUILD_VERSION  "V 1.0.0095.1-at0.4"
 #define STRING_BUILD_DATE __DATE__ " " __TIME__ // build date and time
 #define STRING_CONFIG_H_AUTHOR "FABteam" // Who made the changes.
 
@@ -25,8 +25,8 @@
 #define SERIAL_PORT 0
 
 // This determines the communication speed of the printer
-// This determines the communication speed of the printer
-#define BAUDRATE 250000
+//#define BAUDRATE 250000
+#define BAUDRATE 115200
 
 // This enables the serial port associated to the Bluetooth interface
 //#define BTENABLED              // Enable BT interface on AT90USB devices
@@ -215,13 +215,13 @@
 
 // this sets the default thermistor type and temperature for initialization purposes
 #define TEMP_SENSOR_0 ARGN(THERMISTOR_HOTSWAP_DEFAULT_INDEX,THERMISTOR_HOTSWAP_SUPPORTED_TYPES)
-#define HEATER_0_MAXTEMP 260 //V1 235, V2 260
+#define HEATER_0_MAXTEMP 275 //V1 235, V2 260
 // END: This are auxiliary macros
 #else
 // When temperature exceeds max temp, your heater will be switched off.
 // This feature exists to protect your hotend from overheating accidentally, but *NOT* from thermistor short/failure!
 // You should use MINTEMP for thermistor short/failure protection.
-#define HEATER_0_MAXTEMP 260
+#define HEATER_0_MAXTEMP 275
 // Temperature sensor type as defined above
 #define TEMP_SENSOR_0 169 // 169 is default FAB Rev 1 thermistor | 11 is the typical 100K NTC beta=3950
 
@@ -242,7 +242,7 @@
 #define HEATER_0_MINTEMP 15
 #define HEATER_1_MINTEMP 15
 #define HEATER_2_MINTEMP 15
-#define BED_MINTEMP 15
+#define BED_MINTEMP 10
 
 // When temperature exceeds max temp, your heater will be switched off.
 // This feature exists to protect your hotend from overheating accidentally, but *NOT* from thermistor short/failure!
@@ -559,7 +559,7 @@ extern bool Z_MAX_ENDSTOP_INVERTING;
 
 #define DEFAULT_AXIS_STEPS_PER_UNIT   {72.5811,72.5811,2133.333,3048.1593}  //  steps per unit for fabtotum e=1914.5295 steps/mm with MK7 ----> MK8 e=2961.833
 
-#define DEFAULT_MAX_FEEDRATE          {550, 550, 15, 12}    // (mm/sec)  E0 was 2MM/SEC
+#define DEFAULT_MAX_FEEDRATE          {250, 250, 15, 12}    // (mm/sec)  E0 was 2MM/SEC
 #define DEFAULT_MAX_ACCELERATION      {10000,10000,50,100}    // X, Y, Z, E maximum start speed for accelerated moves. E default values are good for Skeinforge 40+, for older versions raise them a lot.
 
 #define DEFAULT_ACCELERATION          4000    // X, Y, Z and E max acceleration in mm/s^2 for printing moves  (was 5000)

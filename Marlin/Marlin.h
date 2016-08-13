@@ -321,6 +321,8 @@ extern unsigned int installed_head_id;
 
 #define MAX_PWM         127
 
+#define LIGHTS_PWM_OCR_VALUE 5
+
 #define HOT_LED_ON()	WRITE(HOT_LED_PIN,HIGH)
 #define HOT_LED_OFF()	WRITE(HOT_LED_PIN,LOW)
 
