@@ -7,7 +7,9 @@ IMPORTANT: Compatibility is NOT guaranteed with machines different than the FABt
 ### Version: 1.0.0095.1-at0.4 - 2016-08-13
 * GCode parser rewritten using tokens and a more robust line validation
 * Baudrate is back to 115200. 250000 baud is a non-standard baudrate not handled by some GNU tools and third-party libraries used in the FAB-UI and, apart of that, brings negligible (if none) increase in performance.
+* Ambient light PWM moved into an ISR for a more stable time base (no more disco-style lights during movements, yay!)
 * Some code cleanup and optimization, in particular the TIMER1_ISR. The idea is to optimize (if possibile) the ISR that drives the steppers which tends to be not fast enough to handle the acceleration/deceleration ramps on high steps per unit values.
+* Movements are now completely ignored when an endstop is hit. Before this, the axis that triggered the endstop could still move by a little step. Endstops management will be refactored soon with more granularity (by now, you can't do some movements even if the axis is free to move, just because an endstop is hit)
 * Patches to implement some custom modifications to the machine (which doesn't break the compatibility with the official trunk by the way)
 
 ----------------------------------
