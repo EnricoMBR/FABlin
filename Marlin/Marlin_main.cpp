@@ -1,4 +1,3 @@
-/* -*- c++ -*- */
 
 /*
     Reprap firmware based on Sprinter and grbl.
@@ -36,12 +35,21 @@
   #endif
 #endif // ENABLE_AUTO_BED_LEVELING
 
-#include "ultralcd.h"
+#ifdef ULTRA_LCD
+  #include "ultralcd.h"
+#else
+// Dummy functions
+  void lcd_init() {}
+  void lcd_update() {}
+  #define LCD_MESSAGEPGM(x)
+#endif
 #include "planner.h"
 #include "stepper.h"
 #include "temperature.h"
 #include "motion_control.h"
-#include "cardreader.h"
+#ifdef SDSUPPORT
+  #include "cardreader.h"
+#endif
 #include "watchdog.h"
 #include "ConfigurationStore.h"
 #include "language.h"
@@ -1087,9 +1095,6 @@ inline static enum errors_e calculate_checksum(char* str)
         if (*spurious != ' ')
             return E_INVALID_CMD;
 
-        if (recvd_command.line_number != (line_num - 1))
-            return E_CHKSUM_ERR_LINE_NO;
-
         recvd_command.has_checksum = true;
     }
 
@@ -1100,12 +1105,15 @@ inline static enum errors_e calculate_checksum(char* str)
         if (!recvd_command.has_checksum) {
             return E_CHKSUM_NO_N_WITH_STAR;
         }
-        else if (recvd_command.checksum == (unsigned char)strtoul(str+1, NULL, 10)) {
-            recvd_command.line_number = line_num;
-            return E_OK;
+        else if (recvd_command.checksum != (unsigned char)strtoul(str+1, NULL, 10)) {
+            return E_CHKSUM_MISMATCH;
+        }
+        else if (recvd_command.line_number != (line_num - 1)) {
+            return E_CHKSUM_ERR_LINE_NO;
         }
         else {
-            return E_CHKSUM_MISMATCH;
+            recvd_command.line_number = line_num;
+            return E_OK;
         }
     }
     else if (recvd_command.has_checksum) {
@@ -1834,7 +1842,7 @@ void process_commands()
     return;
   }
 
-  if(code_seen('G'))
+  if (recvd_command.cmd_type == 'G')
   {
     switch(code_value())
     {
@@ -2440,7 +2448,7 @@ void process_commands()
     }
   }
 
-  else if(code_seen('M'))
+  else if (recvd_command.cmd_type == 'M')
   {
     switch( code_value() )
     {
@@ -5006,7 +5014,9 @@ void process_commands()
     break;        
 #endif
     
-      
+   case 997: // M997: Reset last line count
+      recvd_command.line_number = 0;
+   break;   
       
    case 998: // M998: Restart after being killed
       {
@@ -5031,7 +5041,7 @@ void process_commands()
     }
   }
 
-  else if(code_seen('T'))
+  else if (recvd_command.cmd_type == 'T')
   {
     tmp_extruder = code_value();
     if(tmp_extruder >= EXTRUDERS) {
