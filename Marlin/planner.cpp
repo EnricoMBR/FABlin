@@ -55,7 +55,9 @@
 #include "planner.h"
 #include "stepper.h"
 #include "temperature.h"
-#include "ultralcd.h"
+#ifdef ULTRA_LCD
+  #include "ultralcd.h"
+#endif
 #include "language.h"
 
 //===========================================================================
@@ -537,7 +539,9 @@ void plan_buffer_line(const float &x, const float &y, const float &z, const floa
   {
     manage_heater(); 
     manage_inactivity(); 
+#ifdef ULTRA_LCD
     lcd_update();
+#endif
   }
 
 #ifdef ENABLE_AUTO_BED_LEVELING

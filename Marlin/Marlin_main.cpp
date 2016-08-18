@@ -39,9 +39,12 @@
   #include "ultralcd.h"
 #else
 // Dummy functions
-  void lcd_init() {}
-  void lcd_update() {}
+  #define lcd_init()
+  #define lcd_update()
+  #define lcd_setstatus(x)
+  #define lcd_reset_alert_level()
   #define LCD_MESSAGEPGM(x)
+  #define LCD_ALERTMESSAGEPGM(x)
 #endif
 #include "planner.h"
 #include "stepper.h"

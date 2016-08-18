@@ -1,7 +1,9 @@
 #include "Marlin.h"
 #include "planner.h"
 #include "temperature.h"
-#include "ultralcd.h"
+#ifdef ULTRA_LCD
+  #include "ultralcd.h"
+#endif
 #include "ConfigurationStore.h"
 #include "Configuration.h"
 

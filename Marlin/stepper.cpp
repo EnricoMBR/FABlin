@@ -25,9 +25,13 @@
 #include "stepper.h"
 #include "planner.h"
 #include "temperature.h"
-#include "ultralcd.h"
+#ifdef ULTRA_LCD
+  #include "ultralcd.h"
+#endif
 #include "language.h"
-#include "cardreader.h"
+#ifdef SDSUPPORT
+  #include "cardreader.h"
+#endif
 #include "speed_lookuptable.h"
 #if defined(DIGIPOTSS_PIN) && DIGIPOTSS_PIN > -1
 #include <SPI.h>
@@ -186,16 +190,22 @@ void checkHitEndstops()
    SERIAL_ECHOPGM(MSG_ENDSTOPS_HIT);
    if(endstop_x_hit) {
      SERIAL_ECHOPAIR(" X:",(float)endstops_trigsteps[X_AXIS]/axis_steps_per_unit[X_AXIS]);
+#ifdef ULTRA_LCD
      LCD_MESSAGEPGM(MSG_ENDSTOPS_HIT "X");
+#endif
    }
    if(endstop_y_hit) {
      SERIAL_ECHOPAIR(" Y:",(float)endstops_trigsteps[Y_AXIS]/axis_steps_per_unit[Y_AXIS]);
+#ifdef ULTRA_LCD
      LCD_MESSAGEPGM(MSG_ENDSTOPS_HIT "Y");
      LCD_MESSAGEPGM( "Y");
+#endif
    }
    if(endstop_z_hit) {
      SERIAL_ECHOPAIR(" Z:",(float)endstops_trigsteps[Z_AXIS]/axis_steps_per_unit[Z_AXIS]);
+#ifdef ULTRA_LCD
      LCD_MESSAGEPGM(MSG_ENDSTOPS_HIT "Z");
+#endif
    }
    SERIAL_ECHOLN("");
    endstop_x_hit=false;
@@ -545,8 +555,20 @@ ISR(TIMER1_COMPA_vect)
     unsigned short step_rate;
 
     if (step_events_completed <= current_block->accelerate_until) {
-
+      // acc_step_rate = (acceleration_time * current_block->acceleration_rate) >> 24
+      /*SERIAL_ECHOPGM("before mul: ");
+      SERIAL_ECHO(acc_step_rate);
+      SERIAL_ECHOPGM(" ");
+      SERIAL_ECHO(acceleration_time);
+      SERIAL_ECHOPGM(" ");
+      SERIAL_ECHOLN(current_block->acceleration_rate);*/
       MultiU24X24toH16(acc_step_rate, acceleration_time, current_block->acceleration_rate);
+      /*SERIAL_ECHOPGM("after mul: ");
+      SERIAL_ECHO(acc_step_rate);
+      SERIAL_ECHOPGM(" ");
+      SERIAL_ECHO(acceleration_time);
+      SERIAL_ECHOPGM(" ");
+      SERIAL_ECHOLN(current_block->acceleration_rate);*/
       acc_step_rate += current_block->initial_rate;
 
       // upper limit
@@ -560,6 +582,7 @@ ISR(TIMER1_COMPA_vect)
 
     }
     else if (step_events_completed > current_block->decelerate_after) {
+      // step_rate = (deceleration_time * current_block->acceleration_rate) >> 24
         MultiU24X24toH16(step_rate, deceleration_time, current_block->acceleration_rate);
 
         if(step_rate > acc_step_rate) { // Check step_rate stays positive
@@ -1270,7 +1293,9 @@ void st_synchronize()
     while( blocks_queued()) {
     manage_heater();
     manage_inactivity();
+#ifdef ULTRA_LCD
     lcd_update();
+#endif
   }
 }
 

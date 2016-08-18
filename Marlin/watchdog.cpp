@@ -4,7 +4,9 @@
 #include <avr/wdt.h>
 
 #include "watchdog.h"
-#include "ultralcd.h"
+#ifdef ULTRA_LCD
+  #include "ultralcd.h"
+#endif
 
 //===========================================================================
 //=============================private variables  ============================
