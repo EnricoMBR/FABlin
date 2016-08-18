@@ -10,7 +10,7 @@ IMPORTANT: Compatibility is NOT guaranteed with machines different than the FABt
 * Ambient light PWM moved into an ISR for a more stable time base (no more disco-style lights during movements, yay!)
 * Some code cleanup and optimization, in particular the TIMER1_ISR. The idea is to optimize (if possibile) the ISR that drives the steppers which tends to be not fast enough to handle the acceleration/deceleration ramps on high steps per unit values.
 * Movements are now completely ignored when an endstop is hit. Before this, the axis that triggered the endstop could still move by a little step. Endstops management will be refactored soon with more granularity (by now, you can't do some movements even if the axis is free to move, just because an endstop is hit)
-* Patches to implement some custom modifications to the machine (which doesn't break the compatibility with the official trunk by the way)
+* Patches to implement some custom modifications to the machine (which don't break the compatibility with the official trunk by the way)
 
 ----------------------------------
 
