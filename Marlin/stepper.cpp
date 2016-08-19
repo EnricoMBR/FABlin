@@ -350,7 +350,7 @@ FORCE_INLINE void trapezoid_generator_reset() {
 #define COREXY_B_DEC(msk)     (((msk) & (1<<Y_AXIS)) != 0)
 #define COREXY_B_INC(msk)     (((msk) & (1<<Y_AXIS)) == 0)
 #define MOVEMENT_Z_MINUS(msk) (((msk) & (1<<Z_AXIS)) != 0)
-#define MOVEMENT_Z_PLUS(msk ) (((msk) & (1<<Z_AXIS)) == 0)
+#define MOVEMENT_Z_PLUS(msk)  (((msk) & (1<<Z_AXIS)) == 0)
 
 #define MARK_X_ENDSTOP_HIT(val) do { endstops_trigsteps[X_AXIS] = count_position[X_AXIS]; endstop_x_hit = (val); } while (0)
 #define MARK_Y_ENDSTOP_HIT(val) do { endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS]; endstop_y_hit = (val); } while (0)
@@ -368,7 +368,6 @@ ISR(TIMER1_COMPA_vect)
             return; // returning if no valid block found.
         }
 
-        do_once = true;
         current_block->busy = true;
         trapezoid_generator_reset();
         counter_x = -(current_block->step_event_count >> 1);
@@ -445,6 +444,7 @@ ISR(TIMER1_COMPA_vect)
 #else
         bool y_max_endstop = false;
 #endif
+
 #if defined(Z_MIN_PIN) && Z_MIN_PIN > -1
         bool z_min_endstop = (READ(Z_MIN_PIN) != Z_MIN_ENDSTOP_INVERTING);
 #else
@@ -457,8 +457,10 @@ ISR(TIMER1_COMPA_vect)
         bool z_max_endstop = false;
 #endif
 
+        // TODO: this should be investigated further..
         bool moving_A = (current_block->steps_x > 1);
         bool moving_B = (current_block->steps_y > 1);
+        //
         bool decrem_A = COREXY_A_DEC(out_bits);
         bool increm_A = COREXY_A_INC(out_bits);
         bool decrem_B = COREXY_B_DEC(out_bits);
