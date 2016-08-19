@@ -1015,13 +1015,6 @@ bool code_seen(char param)
     bool ret = false;
 
     switch (param) {
-        case 'G':
-        case 'M':
-            if (recvd_command.cmd_type == param) {
-                cmd_param_requested_us = recvd_command.cmd_code;
-                return true;
-            }
-            break;
         case 'X':
             if (CMD_HAS_PARAM(recvd_command, PARAM_X_POS)) {
                 cmd_param_requested_f = recvd_command.x;
@@ -1828,106 +1821,89 @@ void retract(bool retracting) {
 #endif //FWRETRACT
 
 
-void process_commands()
+
+FORCE_INLINE void do_G1()
 {
-  unsigned long codenum; //throw away variable
-  enum errors_e err;
-  char *starpos = NULL;
+    //inactivity=false; //re-enable warning for inactivy.
+    if (Stopped)
+        return;
 
-#ifdef ENABLE_AUTO_BED_LEVELING
-  float x_tmp, y_tmp, z_tmp, real_z;
-#endif
+    get_coordinates(); // For X Y Z E F
 
-  err = parse_gline(cmdbuffer[bufindr]);
-  if (err == E_INVALID_CMD) {
-    SERIAL_ERRORPGM(MSG_ERR_INVALID_COMMAND ": ");
-    SERIAL_ECHOLN(cmdbuffer[bufindr]);
-    return;
-  }
-
-  if (recvd_command.cmd_type == 'G')
-  {
-    switch(code_value())
-    {
-    case 0: // G0 -> G1
-    case 1: // G1
-      //inactivity=false; //re-enable warning for inactivy.
-      if(Stopped == false) {
-        get_coordinates(); // For X Y Z E F
-          #ifdef FWRETRACT
-            if(autoretract_enabled)
-            if( !(code_seen('X') || code_seen('Y') || code_seen('Z')) && code_seen('E')) {
-              float echange=destination[E_AXIS]-current_position[E_AXIS];
-              if((echange<-MIN_RETRACT && !retracted) || (echange>MIN_RETRACT && retracted)) { //move appears to be an attempt to retract or recover
-                  current_position[E_AXIS] = destination[E_AXIS]; //hide the slicer-generated retract/recover from calculations
-                  plan_set_e_position(current_position[E_AXIS]); //AND from the planner
-                  retract(!retracted);
-                  return;
-              }
+#ifdef FWRETRACT
+    if (autoretract_enabled) {
+        if ( !(code_seen('X') || code_seen('Y') || code_seen('Z')) && code_seen('E')) {
+            float echange = destination[E_AXIS]-current_position[E_AXIS];
+            if ((echange < -MIN_RETRACT && !retracted) || (echange > MIN_RETRACT && retracted)) { //move appears to be an attempt to retract or recover
+                current_position[E_AXIS] = destination[E_AXIS]; //hide the slicer-generated retract/recover from calculations
+                plan_set_e_position(current_position[E_AXIS]); //AND from the planner
+                retract(!retracted);
+                return;
             }
-          #endif //FWRETRACT
-        prepare_move();
-        //ClearToSend();
-        return;
-      }
-      //break;
-    case 2: // G2  - CW ARC
-      if(Stopped == false) {
-        get_arc_coordinates();
-        prepare_arc_move(true);
-        return;
-      }
-    case 3: // G3  - CCW ARC
-      if(Stopped == false) {
-        get_arc_coordinates();
-        prepare_arc_move(false);
-        return;
-      }
-    case 4: // G4 dwell
-      LCD_MESSAGEPGM(MSG_DWELL);
-      codenum = 0;
-      if(code_seen('P')) codenum = code_value(); // milliseconds to wait
-      if(code_seen('S')) codenum = code_value() * 1000; // seconds to wait
+        }
+    }
+#endif //FWRETRACT
 
-      st_synchronize();
-      codenum += millis();  // keep track of when we started waiting
-      previous_millis_cmd = millis();
-      while(millis()  < codenum ){
+    prepare_move();
+    //ClearToSend();
+}
+
+FORCE_INLINE void do_G2() {
+    if (Stopped)
+        return;
+
+    get_arc_coordinates();
+    prepare_arc_move(true);
+}
+
+FORCE_INLINE void do_G3() {
+    if (Stopped)
+        return;
+
+    get_arc_coordinates();
+    prepare_arc_move(false);
+}
+
+FORCE_INLINE void do_G4() {
+    unsigned long codenum = 0;
+    LCD_MESSAGEPGM(MSG_DWELL);
+
+    if (code_seen('P'))
+        codenum = code_value(); // milliseconds to wait
+    if (code_seen('S'))
+        codenum = code_value() * 1000; // seconds to wait
+
+    st_synchronize();
+    previous_millis_cmd = millis();
+    codenum += previous_millis_cmd;  // keep track of when we started waiting
+
+    while (millis() < codenum) {
         manage_heater();
         manage_inactivity();
         lcd_update();
-      }
-      break;
-      #ifdef FWRETRACT
-      case 10: // G10 retract
-        retract(true);
-      break;
-      case 11: // G11 retract_recover
-        retract(false);
-      break;
-      #endif //FWRETRACT
-      
-    case 27: //G27 Home all Axis one at a time explicit without Zprobe
-      z_probe_activation=false;
-      home_Z_reverse= true;
-    case 28: //G28 Home all Axis one at a time
-    if(!Stopped){
+    }
+}
+
+FORCE_INLINE void do_G28() {
+    if (!Stopped) {
         retract_z_probe(); //Safety first.
-  #ifdef ENABLE_AUTO_BED_LEVELING
-        plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
-  #endif //ENABLE_AUTO_BED_LEVELING
-  
+    
+#ifdef ENABLE_AUTO_BED_LEVELING
+        plan_bed_level_matrix.set_to_identity(); //Reset the plane ("erase" all leveling data)
+#endif //ENABLE_AUTO_BED_LEVELING
+    
         store_last_amb_color();
-        set_amb_color(0,255,0);       
-        
+        set_amb_color(0,255,0);
+    
         saved_feedrate = feedrate;
         saved_feedmultiply = feedmultiply;
         feedmultiply = 100;
         previous_millis_cmd = millis();
-  
+    
         enable_endstops(true);
-        
-        /*if((READ(Z_MAX_PIN)^Z_MAX_ENDSTOP_INVERTING)&&(!home_Z_reverse)){
+    
+        /*
+         if ((READ(Z_MAX_PIN)^Z_MAX_ENDSTOP_INVERTING)&&(!home_Z_reverse)) {
          //Z movement move to 50 if g27 just happened.
          destination[Z_AXIS] = 20;    // move up
          feedrate = max_feedrate[Z_AXIS];
@@ -1935,321 +1911,553 @@ void process_commands()
          st_synchronize();
          }
          */
-         
+    
         for(int8_t i=0; i < NUM_AXIS; i++) {
-          destination[i] = current_position[i];
+            destination[i] = current_position[i];
         }
+    
         feedrate = 0.0;
-  
         home_all_axis = !((code_seen(axis_codes[X_AXIS])) || (code_seen(axis_codes[Y_AXIS])) || (code_seen(axis_codes[Z_AXIS])));
-  
-        //#if Z_HOME_DIR > 0                      // If homing away from BED do Z first
-        if (Z_HOME_DIR > 0 || home_Z_reverse)
-        if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
-          HOMEAXIS(Z);
+    
+//#if Z_HOME_DIR > 0                      // If homing away from BED do Z first
+        if (Z_HOME_DIR > 0 || home_Z_reverse) {
+            if (home_all_axis || code_seen(axis_codes[Z_AXIS])) {
+                HOMEAXIS(Z);
+            }
         }
-        //#endif
-        if(Stopped){break;}
-  
-        #ifdef QUICK_HOME
-        if((home_all_axis)||( code_seen(axis_codes[X_AXIS]) && code_seen(axis_codes[Y_AXIS])) )  //first diagonal move
+//#endif
+        if (Stopped)
+            return;
+    
+#ifdef QUICK_HOME
+        if ((home_all_axis)||( code_seen(axis_codes[X_AXIS]) && code_seen(axis_codes[Y_AXIS])) ) //first diagonal move
         {
-          zeroed_far_from_home_x=false;
-          zeroed_far_from_home_y=false;
-          current_position[X_AXIS] = 0;current_position[Y_AXIS] = 0;
-  
-         #ifndef DUAL_X_CARRIAGE
-          int x_axis_home_dir = home_dir(X_AXIS);
-         #else
-          int x_axis_home_dir = x_home_dir(active_extruder);
-          extruder_duplication_enabled = false;
-         #endif
-  
-          plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-          destination[X_AXIS] = 1.5 * max_length(X_AXIS) * x_axis_home_dir;destination[Y_AXIS] = 1.5 * max_length(Y_AXIS) * home_dir(Y_AXIS);
-          feedrate = homing_feedrate[X_AXIS];
-          if(homing_feedrate[Y_AXIS]<feedrate)
+            zeroed_far_from_home_x=false;
+            zeroed_far_from_home_y=false;
+            current_position[X_AXIS] = 0;current_position[Y_AXIS] = 0;
+    
+#ifndef DUAL_X_CARRIAGE
+            int x_axis_home_dir = home_dir(X_AXIS);
+#else
+            int x_axis_home_dir = x_home_dir(active_extruder);
+            extruder_duplication_enabled = false;
+#endif
+    
+            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+            destination[X_AXIS] = 1.5 * max_length(X_AXIS) * x_axis_home_dir;destination[Y_AXIS] = 1.5 * max_length(Y_AXIS) * home_dir(Y_AXIS);
+            feedrate = homing_feedrate[X_AXIS];
+            if(homing_feedrate[Y_AXIS]<feedrate)
             feedrate = homing_feedrate[Y_AXIS];
-          if (max_length(X_AXIS) > max_length(Y_AXIS)) {
-            feedrate *= sqrt(pow(max_length(Y_AXIS) / max_length(X_AXIS), 2) + 1);
-          } else {
-            feedrate *= sqrt(pow(max_length(X_AXIS) / max_length(Y_AXIS), 2) + 1);
-          }
-          plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-          st_synchronize();
-  
-          axis_is_at_home(X_AXIS);
-          axis_is_at_home(Y_AXIS);
-          plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-          destination[X_AXIS] = current_position[X_AXIS];
-          destination[Y_AXIS] = current_position[Y_AXIS];
-          plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-          feedrate = 0.0;
-          st_synchronize();
-          endstops_hit_on_purpose();
-  
-          current_position[X_AXIS] = destination[X_AXIS];
-          current_position[Y_AXIS] = destination[Y_AXIS];
-          current_position[Z_AXIS] = destination[Z_AXIS];
+            if (max_length(X_AXIS) > max_length(Y_AXIS)) {
+                feedrate *= sqrt(pow(max_length(Y_AXIS) / max_length(X_AXIS), 2) + 1);
+            } else {
+                feedrate *= sqrt(pow(max_length(X_AXIS) / max_length(Y_AXIS), 2) + 1);
+            }
+            plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
+            st_synchronize();
+    
+            axis_is_at_home(X_AXIS);
+            axis_is_at_home(Y_AXIS);
+            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+            destination[X_AXIS] = current_position[X_AXIS];
+            destination[Y_AXIS] = current_position[Y_AXIS];
+            plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
+            feedrate = 0.0;
+            st_synchronize();
+            endstops_hit_on_purpose();
+    
+            current_position[X_AXIS] = destination[X_AXIS];
+            current_position[Y_AXIS] = destination[Y_AXIS];
+            current_position[Z_AXIS] = destination[Z_AXIS];
         }
-        #endif
-        
-        if(Stopped){break;}
-        
+#endif
+    
+        if (Stopped)
+            return;
+    
         if((home_all_axis) || (code_seen(axis_codes[X_AXIS])))
         {
-          zeroed_far_from_home_x=false;
-        #ifdef DUAL_X_CARRIAGE
-          int tmp_extruder = active_extruder;
-          extruder_duplication_enabled = false;
-          active_extruder = !active_extruder;
-          HOMEAXIS(X);
-          inactive_extruder_x_pos = current_position[X_AXIS];
-          active_extruder = tmp_extruder;
-          HOMEAXIS(X);
-          // reset state used by the different modes
-          memcpy(raised_parked_position, current_position, sizeof(raised_parked_position));
-          delayed_move_time = 0;
-          active_extruder_parked = true;
-        #else
-          HOMEAXIS(X);
-        #endif
+            zeroed_far_from_home_x=false;
+#ifdef DUAL_X_CARRIAGE
+            int tmp_extruder = active_extruder;
+            extruder_duplication_enabled = false;
+            active_extruder = !active_extruder;
+            HOMEAXIS(X);
+            inactive_extruder_x_pos = current_position[X_AXIS];
+            active_extruder = tmp_extruder;
+            HOMEAXIS(X);
+            // reset state used by the different modes
+            memcpy(raised_parked_position, current_position, sizeof(raised_parked_position));
+            delayed_move_time = 0;
+            active_extruder_parked = true;
+#else
+            HOMEAXIS(X);
+#endif
         }
-  
-        if(Stopped){break;}
-        
+    
+        if (Stopped)
+            return;
+    
         if((home_all_axis) || (code_seen(axis_codes[Y_AXIS]))) {
-          zeroed_far_from_home_y=false;
-          HOMEAXIS(Y);
+            zeroed_far_from_home_y=false;
+            HOMEAXIS(Y);
         }
-  
-        if(code_seen(axis_codes[X_AXIS]))
-        {
-          if(code_value_long() != 0) {
-            current_position[X_AXIS]=code_value_float()+add_homeing[0];
-          }
+    
+        if(code_seen(axis_codes[X_AXIS])) {
+            if(code_value_long() != 0) {
+                current_position[X_AXIS]=code_value_float()+add_homeing[0];
+            }
         }
-  
+    
         if(code_seen(axis_codes[Y_AXIS])) {
-          if(code_value_long() != 0) {
-            current_position[Y_AXIS]=code_value_float()+add_homeing[1];
-          }
+            if(code_value_long() != 0) {
+                current_position[Y_AXIS]=code_value_float()+add_homeing[1];
+            }
         }
-        
-        if(Stopped){break;}
-        
-        if(!home_Z_reverse){
-        #if Z_HOME_DIR < 0                      // If homing towards BED do Z last
-          #ifndef Z_SAFE_HOMING
+    
+        if (Stopped)
+            return;
+    
+        if(!home_Z_reverse) {
+#if Z_HOME_DIR < 0                      // If homing towards BED do Z last
+#ifndef Z_SAFE_HOMING
             if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
- 
-              #if defined (Z_RAISE_BEFORE_HOMING) && (Z_RAISE_BEFORE_HOMING > 0)
-                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
+    
+#if defined (Z_RAISE_BEFORE_HOMING) && (Z_RAISE_BEFORE_HOMING > 0)
+                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1); // Set destination away from bed
                 feedrate = max_feedrate[Z_AXIS];
                 plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
                 st_synchronize();
-              #endif
-              HOMEAXIS(Z);
+#endif
+                HOMEAXIS(Z);
             }
-          #else                      // Z Safe mode activated.
+#else                      // Z Safe mode activated.
             if(home_all_axis) {
-              enable_endstops(false);
-              destination[X_AXIS] = round(Z_SAFE_HOMING_X_POINT);
-              destination[Y_AXIS] = round(Z_SAFE_HOMING_Y_POINT);
-              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
-              feedrate = XY_TRAVEL_SPEED;
-              current_position[Z_AXIS] = 0;
-  
-              plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-              plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
-              st_synchronize();
-              current_position[X_AXIS] = destination[X_AXIS];
-              current_position[Y_AXIS] = destination[Y_AXIS];
-              enable_endstops(true);
-              HOMEAXIS(Z);
+                enable_endstops(false);
+                destination[X_AXIS] = round(Z_SAFE_HOMING_X_POINT);
+                destination[Y_AXIS] = round(Z_SAFE_HOMING_Y_POINT);
+                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1); // Set destination away from bed
+                feedrate = XY_TRAVEL_SPEED;
+                current_position[Z_AXIS] = 0;
+    
+                plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+                plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+                st_synchronize();
+                current_position[X_AXIS] = destination[X_AXIS];
+                current_position[Y_AXIS] = destination[Y_AXIS];
+                enable_endstops(true);
+                HOMEAXIS(Z);
             }
-          }
-                    // Let's see if X and Y are homed and probe is inside bed area.
-            if(code_seen(axis_codes[Z_AXIS])) {
-              if ( (axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS]) \
-                && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER >= X_MIN_POS) \
-                && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER <= X_MAX_POS) \
-                && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER >= Y_MIN_POS) \
-                && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER <= Y_MAX_POS)) {
-  
+        }
+        // Let's see if X and Y are homed and probe is inside bed area.
+        if(code_seen(axis_codes[Z_AXIS])) {
+            if ( (axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS])
+                    && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER >= X_MIN_POS)
+                    && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER <= X_MAX_POS)
+                    && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER >= Y_MIN_POS)
+                    && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER <= Y_MAX_POS)) {
+    
                 current_position[Z_AXIS] = 0;
                 plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
+                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1); // Set destination away from bed
                 feedrate = max_feedrate[Z_AXIS];
                 plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
                 st_synchronize();
-  
+    
                 HOMEAXIS(Z);
-              } else if (!((axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS]))) {
-                  LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
-                  SERIAL_ECHO_START;
-                  SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
-              } else {
-                  LCD_MESSAGEPGM(MSG_ZPROBE_OUT);
-                  SERIAL_ECHO_START;
-                  SERIAL_ECHOLNPGM(MSG_ZPROBE_OUT);
-              }
+            } else if (!((axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS]))) {
+                LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
+                SERIAL_ECHO_START;
+                SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
+            } else {
+                LCD_MESSAGEPGM(MSG_ZPROBE_OUT);
+                SERIAL_ECHO_START;
+                SERIAL_ECHOLNPGM(MSG_ZPROBE_OUT);
             }
-          #endif
-        #endif
-  
-  
-  
-        if(code_seen(axis_codes[Z_AXIS])) {
-          if(code_value_long() != 0) {
-            current_position[Z_AXIS]=code_value_float()+add_homeing[2];
-          }
         }
-        #ifdef ENABLE_AUTO_BED_LEVELING
-          if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
-            current_position[Z_AXIS] += zprobe_zoffset;  //Add Z_Probe offset (the distance is negative)
-          }
-        #endif
+#endif
+#endif
+    
+        if(code_seen(axis_codes[Z_AXIS])) {
+            if(code_value_long() != 0) {
+                current_position[Z_AXIS]=code_value_float()+add_homeing[2];
+            }
+        }
+#ifdef ENABLE_AUTO_BED_LEVELING
+        if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+            current_position[Z_AXIS] += zprobe_zoffset; //Add Z_Probe offset (the distance is negative)
+        }
+#endif
         plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-  
-  
-        #ifdef ENDSTOPS_ONLY_FOR_HOMING
-          enable_endstops(false);
-        #endif
-  
+    
+#ifdef ENDSTOPS_ONLY_FOR_HOMING
+        enable_endstops(false);
+#endif
+    
         feedrate = saved_feedrate;
         feedmultiply = saved_feedmultiply;
         previous_millis_cmd = millis();
         endstops_hit_on_purpose();
-        }
-      z_probe_activation=true;
-      home_Z_reverse=false;
-      
-      restore_last_amb_color();
-      
-      
-       enable_endstops(false);
-       //Z movement move to 50 if g27 just happened.
-       destination[X_AXIS] = current_position[X_AXIS]+2; 
-       destination[Y_AXIS] = current_position[Y_AXIS]+2; 
-       destination[Z_AXIS] = current_position[Z_AXIS]; 
-       destination[E_AXIS] = current_position[E_AXIS];    
-       feedrate = max_feedrate[Z_AXIS];
-       plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
-
-      current_position[X_AXIS] = destination[X_AXIS];
-      current_position[Y_AXIS] = destination[Y_AXIS];
-      current_position[Z_AXIS] = destination[Z_AXIS];
-      plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-
-       st_synchronize();
-       enable_endstops(true);
-       
-
-      break;
-
+    }
+    z_probe_activation=true;
+    home_Z_reverse=false;
     
+    restore_last_amb_color();
+    
+    enable_endstops(false);
+    //Z movement move to 50 if g27 just happened.
+    destination[X_AXIS] = current_position[X_AXIS]+2;
+    destination[Y_AXIS] = current_position[Y_AXIS]+2;
+    destination[Z_AXIS] = current_position[Z_AXIS];
+    destination[E_AXIS] = current_position[E_AXIS];
+    feedrate = max_feedrate[Z_AXIS];
+    plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+    
+    current_position[X_AXIS] = destination[X_AXIS];
+    current_position[Y_AXIS] = destination[Y_AXIS];
+    current_position[Z_AXIS] = destination[Z_AXIS];
+    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+    
+    st_synchronize();
+    enable_endstops(true);
+    
+    if (!Stopped) {
+        retract_z_probe(); //Safety first.
 #ifdef ENABLE_AUTO_BED_LEVELING
-    case 29: // G29 Detailed Z-Probe, probes the bed at 3 or more points.
+        plan_bed_level_matrix.set_to_identity(); //Reset the plane ("erase" all leveling data)
+#endif //ENABLE_AUTO_BED_LEVELING
+    
+        store_last_amb_color();
+        set_amb_color(0,255,0);
+    
+        saved_feedrate = feedrate;
+        saved_feedmultiply = feedmultiply;
+        feedmultiply = 100;
+        previous_millis_cmd = millis();
+    
+        enable_endstops(true);
+    
+/*
+        if((READ(Z_MAX_PIN)^Z_MAX_ENDSTOP_INVERTING)&&(!home_Z_reverse)){
+            //Z movement move to 50 if g27 just happened.
+            destination[Z_AXIS] = 20;    // move up
+            feedrate = max_feedrate[Z_AXIS];
+            plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+            st_synchronize();
+        }
+*/
+    
+        for(int8_t i=0; i < NUM_AXIS; i++) {
+            destination[i] = current_position[i];
+        }
+        feedrate = 0.0;
+    
+        home_all_axis = !((code_seen(axis_codes[X_AXIS])) || (code_seen(axis_codes[Y_AXIS])) || (code_seen(axis_codes[Z_AXIS])));
+    
+        //#if Z_HOME_DIR > 0                      // If homing away from BED do Z first
+        if (Z_HOME_DIR > 0 || home_Z_reverse)
+        if ((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+            HOMEAXIS(Z);
+        }
+        //#endif
+        if (Stopped)
+          return;
+    
+#ifdef QUICK_HOME
+        if((home_all_axis)||( code_seen(axis_codes[X_AXIS]) && code_seen(axis_codes[Y_AXIS])) ) //first diagonal move
         {
-          if(!Stopped){
-            #if Z_MIN_PIN == -1
-            #error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
-            #endif
-
-            store_last_amb_color();
-            set_amb_color(0,255,0); 
-            
-        
-            // Prevent user from running a G29 without first homing in X and Y
-            if (! (axis_known_position[X_AXIS] && axis_known_position[Y_AXIS]) )
-            {
+            zeroed_far_from_home_x=false;
+            zeroed_far_from_home_y=false;
+            current_position[X_AXIS] = 0;current_position[Y_AXIS] = 0;
+    
+#ifndef DUAL_X_CARRIAGE
+            int x_axis_home_dir = home_dir(X_AXIS);
+#else
+            int x_axis_home_dir = x_home_dir(active_extruder);
+            extruder_duplication_enabled = false;
+#endif
+    
+            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+            destination[X_AXIS] = 1.5 * max_length(X_AXIS) * x_axis_home_dir;destination[Y_AXIS] = 1.5 * max_length(Y_AXIS) * home_dir(Y_AXIS);
+            feedrate = homing_feedrate[X_AXIS];
+            if (homing_feedrate[Y_AXIS]<feedrate)
+                feedrate = homing_feedrate[Y_AXIS];
+            if (max_length(X_AXIS) > max_length(Y_AXIS)) {
+                feedrate *= sqrt(pow(max_length(Y_AXIS) / max_length(X_AXIS), 2) + 1);
+            } else {
+                feedrate *= sqrt(pow(max_length(X_AXIS) / max_length(Y_AXIS), 2) + 1);
+            }
+            plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
+            st_synchronize();
+    
+            axis_is_at_home(X_AXIS);
+            axis_is_at_home(Y_AXIS);
+            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+            destination[X_AXIS] = current_position[X_AXIS];
+            destination[Y_AXIS] = current_position[Y_AXIS];
+            plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
+            feedrate = 0.0;
+            st_synchronize();
+            endstops_hit_on_purpose();
+    
+            current_position[X_AXIS] = destination[X_AXIS];
+            current_position[Y_AXIS] = destination[Y_AXIS];
+            current_position[Z_AXIS] = destination[Z_AXIS];
+        }
+#endif
+    
+        if (Stopped)
+            return;
+    
+        if((home_all_axis) || (code_seen(axis_codes[X_AXIS])))
+        {
+            zeroed_far_from_home_x=false;
+#ifdef DUAL_X_CARRIAGE
+            int tmp_extruder = active_extruder;
+            extruder_duplication_enabled = false;
+            active_extruder = !active_extruder;
+            HOMEAXIS(X);
+            inactive_extruder_x_pos = current_position[X_AXIS];
+            active_extruder = tmp_extruder;
+            HOMEAXIS(X);
+            // reset state used by the different modes
+            memcpy(raised_parked_position, current_position, sizeof(raised_parked_position));
+            delayed_move_time = 0;
+            active_extruder_parked = true;
+#else
+            HOMEAXIS(X);
+#endif
+        }
+    
+        if (Stopped)
+            return;
+    
+        if((home_all_axis) || (code_seen(axis_codes[Y_AXIS]))) {
+            zeroed_far_from_home_y=false;
+            HOMEAXIS(Y);
+        }
+    
+        if(code_seen(axis_codes[X_AXIS]))
+        {
+            if(code_value_long() != 0) {
+                current_position[X_AXIS]=code_value_float()+add_homeing[0];
+            }
+        }
+    
+        if(code_seen(axis_codes[Y_AXIS])) {
+            if(code_value_long() != 0) {
+                current_position[Y_AXIS]=code_value_float()+add_homeing[1];
+            }
+        }
+    
+        if (Stopped)
+            return;
+    
+        if(!home_Z_reverse) {
+#if Z_HOME_DIR < 0                      // If homing towards BED do Z last
+#ifndef Z_SAFE_HOMING
+            if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+    
+#if defined (Z_RAISE_BEFORE_HOMING) && (Z_RAISE_BEFORE_HOMING > 0)
+                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1); // Set destination away from bed
+                feedrate = max_feedrate[Z_AXIS];
+                plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+                st_synchronize();
+#endif
+                HOMEAXIS(Z);
+            }
+#else                      // Z Safe mode activated.
+            if(home_all_axis) {
+                enable_endstops(false);
+                destination[X_AXIS] = round(Z_SAFE_HOMING_X_POINT);
+                destination[Y_AXIS] = round(Z_SAFE_HOMING_Y_POINT);
+                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1); // Set destination away from bed
+                feedrate = XY_TRAVEL_SPEED;
+                current_position[Z_AXIS] = 0;
+    
+                plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+                plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+                st_synchronize();
+                current_position[X_AXIS] = destination[X_AXIS];
+                current_position[Y_AXIS] = destination[Y_AXIS];
+                enable_endstops(true);
+                HOMEAXIS(Z);
+            }
+        }
+        // Let's see if X and Y are homed and probe is inside bed area.
+        if(code_seen(axis_codes[Z_AXIS])) {
+            if ( (axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS])
+                    && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER >= X_MIN_POS)
+                    && (current_position[X_AXIS]+X_PROBE_OFFSET_FROM_EXTRUDER <= X_MAX_POS)
+                    && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER >= Y_MIN_POS)
+                    && (current_position[Y_AXIS]+Y_PROBE_OFFSET_FROM_EXTRUDER <= Y_MAX_POS)) {
+    
+                current_position[Z_AXIS] = 0;
+                plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+                destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1); // Set destination away from bed
+                feedrate = max_feedrate[Z_AXIS];
+                plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+                st_synchronize();
+    
+                HOMEAXIS(Z);
+            } else if (!((axis_known_position[X_AXIS]) && (axis_known_position[Y_AXIS]))) {
                 LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
                 SERIAL_ECHO_START;
                 SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
-                break; // abort G29, since we don't know where we are
+            } else {
+                LCD_MESSAGEPGM(MSG_ZPROBE_OUT);
+                SERIAL_ECHO_START;
+                SERIAL_ECHOLNPGM(MSG_ZPROBE_OUT);
+            }
+        }
+#endif
+#endif
+    
+        if(code_seen(axis_codes[Z_AXIS])) {
+            if(code_value_long() != 0) {
+                current_position[Z_AXIS]=code_value_float()+add_homeing[2];
+            }
+        }
+#ifdef ENABLE_AUTO_BED_LEVELING
+        if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+            current_position[Z_AXIS] += zprobe_zoffset; //Add Z_Probe offset (the distance is negative)
+        }
+#endif
+        plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+    
+#ifdef ENDSTOPS_ONLY_FOR_HOMING
+        enable_endstops(false);
+#endif
+    
+        feedrate = saved_feedrate;
+        feedmultiply = saved_feedmultiply;
+        previous_millis_cmd = millis();
+        endstops_hit_on_purpose();
+    }
+    z_probe_activation=true;
+    home_Z_reverse=false;
+    
+    restore_last_amb_color();
+    
+    enable_endstops(false);
+    //Z movement move to 50 if g27 just happened.
+    destination[X_AXIS] = current_position[X_AXIS]+2;
+    destination[Y_AXIS] = current_position[Y_AXIS]+2;
+    destination[Z_AXIS] = current_position[Z_AXIS];
+    destination[E_AXIS] = current_position[E_AXIS];
+    feedrate = max_feedrate[Z_AXIS];
+    plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+    
+    current_position[X_AXIS] = destination[X_AXIS];
+    current_position[Y_AXIS] = destination[Y_AXIS];
+    current_position[Z_AXIS] = destination[Z_AXIS];
+    plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+    
+    st_synchronize();
+    enable_endstops(true);
+}
+
+FORCE_INLINE void do_G29()
+{
+#ifdef ENABLE_AUTO_BED_LEVELING
+    float x_tmp, y_tmp, z_tmp, real_z;
+
+    if (!Stopped) {
+
+#if Z_MIN_PIN == -1
+    #error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
+#endif
+
+        store_last_amb_color();
+        set_amb_color(0,255,0); 
+        
+    
+        // Prevent user from running a G29 without first homing in X and Y
+        if ( !(axis_known_position[X_AXIS] && axis_known_position[Y_AXIS]) )
+        {
+            LCD_MESSAGEPGM(MSG_POSITION_UNKNOWN);
+            SERIAL_ECHO_START;
+            SERIAL_ECHOLNPGM(MSG_POSITION_UNKNOWN);
+            return; // abort G29, since we don't know where we are
+        }
+
+        st_synchronize();
+        // make sure the bed_level_rotation_matrix is identity or the planner will get it incorectly
+        //vector_3 corrected_position = plan_get_position_mm();
+        //corrected_position.debug("position before G29");
+        plan_bed_level_matrix.set_to_identity();
+        vector_3 uncorrected_position = plan_get_position();
+        //uncorrected_position.debug("position durring G29");
+        current_position[X_AXIS] = uncorrected_position.x;
+        current_position[Y_AXIS] = uncorrected_position.y;
+        current_position[Z_AXIS] = uncorrected_position.z;
+        plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+        setup_for_endstop_move();
+
+        feedrate = homing_feedrate[Z_AXIS];
+#ifdef AUTO_BED_LEVELING_GRID
+        // probe at the points of a lattice grid
+        int xGridSpacing = (RIGHT_PROBE_BED_POSITION - LEFT_PROBE_BED_POSITION) / (AUTO_BED_LEVELING_GRID_POINTS-1);
+        int yGridSpacing = (BACK_PROBE_BED_POSITION - FRONT_PROBE_BED_POSITION) / (AUTO_BED_LEVELING_GRID_POINTS-1);
+
+        // solve the plane equation ax + by + d = z
+        // A is the matrix with rows [x y 1] for all the probed points
+        // B is the vector of the Z positions
+        // the normal vector to the plane is formed by the coefficients of the plane equation in the standard form, which is Vx*x+Vy*y+Vz*z+d = 0
+        // so Vx = -a Vy = -b Vz = 1 (we want the vector facing towards positive Z
+
+        // "A" matrix of the linear system of equations
+        double eqnAMatrix[AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS*3];
+        // "B" vector of Z points
+        double eqnBVector[AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS];
+
+    
+        int probePointCounter = 0;
+        bool zig = true;
+        bool engage_z_flag=true;
+
+        for (int yProbe=FRONT_PROBE_BED_POSITION; yProbe <= BACK_PROBE_BED_POSITION; yProbe += yGridSpacing)
+        {
+            int xProbe, xInc;
+            if (zig)
+            {
+              xProbe = LEFT_PROBE_BED_POSITION;
+              //xEnd = RIGHT_PROBE_BED_POSITION;
+              xInc = xGridSpacing;
+              zig = false;
+            }
+            else // zag
+            {
+              xProbe = RIGHT_PROBE_BED_POSITION;
+              //xEnd = LEFT_PROBE_BED_POSITION;
+              xInc = -xGridSpacing;
+              zig = true;
             }
 
-            st_synchronize();
-            // make sure the bed_level_rotation_matrix is identity or the planner will get it incorectly
-            //vector_3 corrected_position = plan_get_position_mm();
-            //corrected_position.debug("position before G29");
-            plan_bed_level_matrix.set_to_identity();
-            vector_3 uncorrected_position = plan_get_position();
-            //uncorrected_position.debug("position durring G29");
-            current_position[X_AXIS] = uncorrected_position.x;
-            current_position[Y_AXIS] = uncorrected_position.y;
-            current_position[Z_AXIS] = uncorrected_position.z;
-            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-            setup_for_endstop_move();
-
-            feedrate = homing_feedrate[Z_AXIS];
-#ifdef AUTO_BED_LEVELING_GRID
-            // probe at the points of a lattice grid
-
-            int xGridSpacing = (RIGHT_PROBE_BED_POSITION - LEFT_PROBE_BED_POSITION) / (AUTO_BED_LEVELING_GRID_POINTS-1);
-            int yGridSpacing = (BACK_PROBE_BED_POSITION - FRONT_PROBE_BED_POSITION) / (AUTO_BED_LEVELING_GRID_POINTS-1);
-
-
-            // solve the plane equation ax + by + d = z
-            // A is the matrix with rows [x y 1] for all the probed points
-            // B is the vector of the Z positions
-            // the normal vector to the plane is formed by the coefficients of the plane equation in the standard form, which is Vx*x+Vy*y+Vz*z+d = 0
-            // so Vx = -a Vy = -b Vz = 1 (we want the vector facing towards positive Z
-
-            // "A" matrix of the linear system of equations
-            double eqnAMatrix[AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS*3];
-            // "B" vector of Z points
-            double eqnBVector[AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS];
-
-        
-            int probePointCounter = 0;
-            bool zig = true;
-            bool engage_z_flag=true;
-
-            for (int yProbe=FRONT_PROBE_BED_POSITION; yProbe <= BACK_PROBE_BED_POSITION; yProbe += yGridSpacing)
+            for (int xCount=0; xCount < AUTO_BED_LEVELING_GRID_POINTS; xCount++)
             {
-              int xProbe, xInc;
-              if (zig)
-              {
-                xProbe = LEFT_PROBE_BED_POSITION;
-                //xEnd = RIGHT_PROBE_BED_POSITION;
-                xInc = xGridSpacing;
-                zig = false;
-              } else // zag
-              {
-                xProbe = RIGHT_PROBE_BED_POSITION;
-                //xEnd = LEFT_PROBE_BED_POSITION;
-                xInc = -xGridSpacing;
-                zig = true;
-              }
-
-              for (int xCount=0; xCount < AUTO_BED_LEVELING_GRID_POINTS; xCount++)
-              {
                 float z_before;
-                if (probePointCounter == 0)
-                {
-                  // raise before probing
-                  z_before = Z_RAISE_BEFORE_PROBING;
-                  
-                } else
-                {
-                  // raise extruder
-                  z_before = current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS;
+
+                if (probePointCounter == 0) {
+                    // raise before probing
+                    z_before = Z_RAISE_BEFORE_PROBING;
                 }
-                
-                if(Stopped)
-                    {
-                      break;
-                    }
-                float measured_z=0;
-                    
-                for(int avg_measured_z=0; avg_measured_z<AVG_MEASURED_Z_MAX;avg_measured_z++)
-                    {
+                else {
+                    // raise extruder
+                    z_before = current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS;
+                }
+              
+                if (Stopped)
+                    return;
+
+                float measured_z = 0;
+                  
+                for (int avg_measured_z=0; avg_measured_z<AVG_MEASURED_Z_MAX;avg_measured_z++)
+                {
                     measured_z = probe_pt_no_engz(xProbe, yProbe, z_before,engage_z_flag)+measured_z;
                     engage_z_flag=false;
-                    }
-                    
+                }
+                  
 
                 eqnBVector[probePointCounter] = measured_z/AVG_MEASURED_Z_MAX;
 
@@ -2258,150 +2466,136 @@ void process_commands()
                 eqnAMatrix[probePointCounter + 2*AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS] = 1;
                 probePointCounter++;
                 xProbe += xInc;
-              }
             }
-            clean_up_after_endstop_move();
-            plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+2, current_position[E_AXIS], 5, active_extruder);
-            st_synchronize();
-            retract_z_probe();
-            plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 5, active_extruder);
-            st_synchronize();
-                  
-            
+        }
 
-            // solve lsq problem
-            double *plane_equation_coefficients = qr_solve(AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS, 3, eqnAMatrix, eqnBVector);
+        clean_up_after_endstop_move();
+        plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+2, current_position[E_AXIS], 5, active_extruder);
+        st_synchronize();
+        retract_z_probe();
+        plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 5, active_extruder);
+        st_synchronize();
 
-            SERIAL_PROTOCOLPGM("Eqn coefficients: a: ");
-            SERIAL_PROTOCOL_F(plane_equation_coefficients[0],6);
-            SERIAL_PROTOCOLPGM(" b: ");
-            SERIAL_PROTOCOL_F(plane_equation_coefficients[1],6);
-            SERIAL_PROTOCOLPGM(" d: ");
-            SERIAL_PROTOCOL_F(plane_equation_coefficients[2],6);
-            SERIAL_PROTOCOLLN("");
+        // solve lsq problem
+        double *plane_equation_coefficients = qr_solve(AUTO_BED_LEVELING_GRID_POINTS*AUTO_BED_LEVELING_GRID_POINTS, 3, eqnAMatrix, eqnBVector);
 
+        SERIAL_PROTOCOLPGM("Eqn coefficients: a: ");
+        SERIAL_PROTOCOL_F(plane_equation_coefficients[0],6);
+        SERIAL_PROTOCOLPGM(" b: ");
+        SERIAL_PROTOCOL_F(plane_equation_coefficients[1],6);
+        SERIAL_PROTOCOLPGM(" d: ");
+        SERIAL_PROTOCOL_F(plane_equation_coefficients[2],6);
+        SERIAL_PROTOCOLLN("");
 
-            set_bed_level_equation_lsq(plane_equation_coefficients);
+        set_bed_level_equation_lsq(plane_equation_coefficients);
 
-            free(plane_equation_coefficients);
+        free(plane_equation_coefficients);
 
 #else // AUTO_BED_LEVELING_GRID not defined
+        // Probe at 3 arbitrary points
+        // probe 1
+        bool engage_z_flag=true;
+        float z_at_pt_1 = probe_pt(ABL_PROBE_PT_1_X, ABL_PROBE_PT_1_Y, Z_RAISE_BEFORE_PROBING,engage_z_flag);
+        engage_z_flag=false;
+        // probe 2
+        float z_at_pt_2 = probe_pt(ABL_PROBE_PT_2_X, ABL_PROBE_PT_2_Y, current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS,engage_z_flag);
 
-            // Probe at 3 arbitrary points
-            // probe 1
-            bool engage_z_flag=true;
-            float z_at_pt_1 = probe_pt(ABL_PROBE_PT_1_X, ABL_PROBE_PT_1_Y, Z_RAISE_BEFORE_PROBING,engage_z_flag);
-            engage_z_flag=false;
-            // probe 2
-            float z_at_pt_2 = probe_pt(ABL_PROBE_PT_2_X, ABL_PROBE_PT_2_Y, current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS,engage_z_flag);
+        // probe 3
+        float z_at_pt_3 = probe_pt(ABL_PROBE_PT_3_X, ABL_PROBE_PT_3_Y, current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS,engage_z_flag);
 
-            // probe 3
-            float z_at_pt_3 = probe_pt(ABL_PROBE_PT_3_X, ABL_PROBE_PT_3_Y, current_position[Z_AXIS] + Z_RAISE_BETWEEN_PROBINGS,engage_z_flag);
-
-            clean_up_after_endstop_move();
-            plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+2, current_position[E_AXIS], 5, active_extruder);
-            st_synchronize();
-            retract_z_probe();
-            plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 5, active_extruder);
-            st_synchronize();
-
-            set_bed_level_equation_3pts(z_at_pt_1, z_at_pt_2, z_at_pt_3);
-
+        clean_up_after_endstop_move();
+        plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+2, current_position[E_AXIS], 5, active_extruder);
+        st_synchronize();
+        retract_z_probe();
+        plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS], 5, active_extruder);
+        st_synchronize();
+        set_bed_level_equation_3pts(z_at_pt_1, z_at_pt_2, z_at_pt_3);
 
 #endif // AUTO_BED_LEVELING_GRID
-            st_synchronize();
 
-            // The following code correct the Z height difference from z-probe position and hotend tip position.
-            // The Z height on homing is measured by Z-Probe, but the probe is quite far from the hotend.
-            // When the bed is uneven, this height must be corrected.
-            real_z = float(st_get_position(Z_AXIS))/axis_steps_per_unit[Z_AXIS];  //get the real Z (since the auto bed leveling is already correcting the plane)
-            x_tmp = current_position[X_AXIS] + X_PROBE_OFFSET_FROM_EXTRUDER;
-            y_tmp = current_position[Y_AXIS] + Y_PROBE_OFFSET_FROM_EXTRUDER;
-            z_tmp = current_position[Z_AXIS];
+        st_synchronize();
 
-            apply_rotation_xyz(plan_bed_level_matrix, x_tmp, y_tmp, z_tmp);         //Apply the correction sending the probe offset
-            current_position[Z_AXIS] = z_tmp - real_z + current_position[Z_AXIS];   //The difference is added to current position and sent to planner.
-            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-          }
-        }
-        
-        restore_last_amb_color();
-        if(Stopped)
-                    {
-                      plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
-                    }
-        break;
+        // The following code correct the Z height difference from z-probe position and hotend tip position.
+        // The Z height on homing is measured by Z-Probe, but the probe is quite far from the hotend.
+        // When the bed is uneven, this height must be corrected.
+        real_z = float(st_get_position(Z_AXIS))/axis_steps_per_unit[Z_AXIS];  //get the real Z (since the auto bed leveling is already correcting the plane)
+        x_tmp = current_position[X_AXIS] + X_PROBE_OFFSET_FROM_EXTRUDER;
+        y_tmp = current_position[Y_AXIS] + Y_PROBE_OFFSET_FROM_EXTRUDER;
+        z_tmp = current_position[Z_AXIS];
 
-    case 30: // G30 Single Z Probe
-        {
-          if(!Stopped){
-            
-            //engage_z_probe(); // Engage Z Servo endstop if available
-
-
-            float feedRateUp = homing_feedrate[Z_AXIS];
-            float feedRateDown = homing_feedrate[Z_AXIS];
-            
-            if (code_seen('U')) {
-                // UP Value Feed Rate
-                feedRateUp = code_value();
-            }
-          
-            if (code_seen('D')) {
-              // Down Value (Bed Retract) Feed Rate
-              feedRateDown = code_value();
-            }
-            
-
-
-            st_synchronize();
-            // TODO: make sure the bed_level_rotation_matrix is identity or the planner will get set incorectly
-            setup_for_endstop_move();
-
-            feedrate = feedRateUp; //homing_feedrate[Z_AXIS];
-          
-            SERIAL_PROTOCOLPGM(" Feedrate: ");
-            SERIAL_PROTOCOL(feedrate);
-            SERIAL_PROTOCOLPGM(" ");
-          
-            run_fast_z_probe(feedrate);
-            SERIAL_PROTOCOLPGM(MSG_BED);
-            SERIAL_PROTOCOLPGM(" X: ");
-            SERIAL_PROTOCOL(current_position[X_AXIS]);
-            SERIAL_PROTOCOLPGM(" Y: ");
-            SERIAL_PROTOCOL(current_position[Y_AXIS]);
-            SERIAL_PROTOCOLPGM(" Z: ");
-            SERIAL_PROTOCOL(current_position[Z_AXIS]);
-            SERIAL_PROTOCOLPGM("\n");
-
-            clean_up_after_endstop_move();
-
-            feedrate = homing_feedrate[Z_AXIS];
-            //retract_z_probe(); // Retract Z Servo endstop if available
-          }
-        }
-        break;
+        apply_rotation_xyz(plan_bed_level_matrix, x_tmp, y_tmp, z_tmp);         //Apply the correction sending the probe offset
+        current_position[Z_AXIS] = z_tmp - real_z + current_position[Z_AXIS];   //The difference is added to current position and sent to planner.
+        plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+    }
+    
+    restore_last_amb_color();
+    if (Stopped)
+        plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
 #endif // ENABLE_AUTO_BED_LEVELING
+}
+
+FORCE_INLINE void do_G30() {
+#ifdef ENABLE_AUTO_BED_LEVELING
+    if (Stopped)
+        return;
+
+    //engage_z_probe(); // Engage Z Servo endstop if available
+
+    float feedRateUp = homing_feedrate[Z_AXIS];
+    float feedRateDown = homing_feedrate[Z_AXIS];
+
+    if (code_seen('U')) {
+        // UP Value Feed Rate
+        feedRateUp = code_value();
+    }
+  
+    if (code_seen('D')) {
+        // Down Value (Bed Retract) Feed Rate
+        feedRateDown = code_value();
+    }
+
+    st_synchronize();
+    // TODO: make sure the bed_level_rotation_matrix is identity or the planner will get set incorectly
+    setup_for_endstop_move();
+  
+    feedrate = feedRateUp; //homing_feedrate[Z_AXIS];
+  
+    SERIAL_PROTOCOLPGM(" Feedrate: ");
+    SERIAL_PROTOCOL(feedrate);
+    SERIAL_PROTOCOLPGM(" ");
+
+    run_fast_z_probe(feedrate);
+    SERIAL_PROTOCOLPGM(MSG_BED);
+    SERIAL_PROTOCOLPGM(" X: ");
+    SERIAL_PROTOCOL(current_position[X_AXIS]);
+    SERIAL_PROTOCOLPGM(" Y: ");
+    SERIAL_PROTOCOL(current_position[Y_AXIS]);
+    SERIAL_PROTOCOLPGM(" Z: ");
+    SERIAL_PROTOCOL(current_position[Z_AXIS]);
+    SERIAL_PROTOCOLPGM("\n");
+  
+    clean_up_after_endstop_move();
+  
+    feedrate = homing_feedrate[Z_AXIS];
+    //retract_z_probe(); // Retract Z Servo endstop if available
+#endif // ENABLE_AUTO_BED_LEVELING
+}
+
+FORCE_INLINE void do_G38() {
 #ifdef EXTERNAL_ENDSTOP_Z_PROBING
-    case 38: // G38 endstop based z probe
-       // Same behaviour as G30 but with an endstop external z probe connected as described in M746
-       // It does nothing unless the probe is enabled first with M746 S1
-        {
-          if(!Stopped && enable_secure_switch_zprobe){
-            
-            st_synchronize();
-            
-            setup_for_external_z_endstop_move();
- 
-      if (code_seen('S')) {
-        feedrate = code_value();
-        
-        if(feedrate > 200 ) // ignore the user, greater than 200 for probing is considered to be dangerous (the tool will crash badly)
-    feedrate = 200;
-      }
-      else
-        feedrate = homing_feedrate[Z_AXIS];
-          
+    // Same behaviour as G30 but with an endstop external z probe connected as described in M746
+    // It does nothing unless the probe is enabled first with M746 S1
+    if (!Stopped && enable_secure_switch_zprobe) {
+        st_synchronize();
+        setup_for_external_z_endstop_move();
+        if (code_seen('S')) {
+            feedrate = code_value();
+            if (feedrate > 200) { // ignore the user, greater than 200 for probing is considered to be dangerous (the tool will crash badly)
+                feedrate = 200;
+            }
+            else {
+                feedrate = homing_feedrate[Z_AXIS];
+            }
             run_fast_external_z_endstop();
             SERIAL_PROTOCOLPGM(MSG_BED);
             SERIAL_PROTOCOLPGM(" X: ");
@@ -2411,49 +2605,114 @@ void process_commands()
             SERIAL_PROTOCOLPGM(" Z: ");
             SERIAL_PROTOCOL(current_position[Z_AXIS]);
             SERIAL_PROTOCOLPGM("\n");
-
+  
             clean_up_after_endstop_move();
-          }
         }
-        break;        
-#endif //ENDSTOP_Z_PROBING
-    case 90: // G90
-      relative_mode = false;
-      break;
-    case 91: // G91
-      relative_mode = true;
-      break;
-    case 92: // G92
-      if(code_seen(axis_codes[X_AXIS]))
-        {zeroed_far_from_home_x=true;}
-      if(code_seen(axis_codes[Y_AXIS]))
-         {zeroed_far_from_home_y=true;}
-      if(!code_seen(axis_codes[E_AXIS]))
-        st_synchronize();
-      for(int8_t i=0; i < NUM_AXIS; i++) {
-        if(code_seen(axis_codes[i])) {
-           if(i == E_AXIS) {
-             current_position[i] = code_value_float();
-             plan_set_e_position(current_position[E_AXIS]);
-           }
-           else {
-             current_position[i] = code_value_float()+add_homeing[i];
-             plan_set_position(
-                 current_position[X_AXIS],
-                 current_position[Y_AXIS],
-                 current_position[Z_AXIS],
-                 current_position[E_AXIS]
-             );
-           }
-        }
-      }
-      break;
     }
-  }
+#endif // EXTERNAL_ENDSTOP_Z_PROBING
+}
 
-  else if (recvd_command.cmd_type == 'M')
-  {
-    switch( code_value() )
+FORCE_INLINE void do_G92() {
+    if (code_seen(axis_codes[X_AXIS]))
+        zeroed_far_from_home_x = true;
+
+    if (code_seen(axis_codes[Y_AXIS]))
+        zeroed_far_from_home_y = true;
+
+    if (!code_seen(axis_codes[E_AXIS]))
+        st_synchronize();
+
+    for (int8_t i = 0; i < NUM_AXIS; i++) {
+        if (code_seen(axis_codes[i])) {
+            if (i == E_AXIS) {
+                current_position[i] = code_value_float();
+                plan_set_e_position(current_position[E_AXIS]);
+            }
+            else {
+                current_position[i] = code_value_float()+add_homeing[i];
+                plan_set_position(
+                    current_position[X_AXIS],
+                    current_position[Y_AXIS],
+                    current_position[Z_AXIS],
+                    current_position[E_AXIS]
+                );
+            }
+        }
+    }
+}
+
+FORCE_INLINE void manage_G_commands()
+{
+    switch (recvd_command.cmd_code) {
+        case 0: // G0 -> G1
+        case 1: // G1
+            do_G1();
+        break;
+
+        case 2: // G2  - CW ARC
+            do_G2();
+        break;
+
+        case 3: // G3  - CCW ARC
+            do_G3();
+        break;
+
+        case 4: // G4 dwell
+            do_G4();
+        break;
+
+#ifdef FWRETRACT
+        case 10: // G10 retract
+            retract(true);
+        break;
+
+        case 11: // G11 retract_recover
+            retract(false);
+        break;
+#endif //FWRETRACT
+
+        case 27: //G27 Home all Axis one at a time explicit without Zprobe
+            z_probe_activation = false;
+            home_Z_reverse = true;
+        break;
+
+        case 28: //G28 Home all Axis one at a time
+            do_G28();
+        break;
+
+        case 29:
+            do_G29();
+        break;
+
+        case 30:
+            do_G30();
+        break;
+
+        case 38:
+            do_G38();
+        break;
+        
+        case 90: // G90
+          relative_mode = false;
+        break;
+
+        case 91: // G91
+          relative_mode = true;
+        break;
+
+        case 92: // G92
+            do_G92();
+        break;
+    }
+}
+
+// Will be done.. not today.
+FORCE_INLINE void manage_M_commands()
+{
+    unsigned long codenum; //throw away variable
+    char *starpos = NULL;
+
+    switch ( recvd_command.cmd_code )
     {
 #ifdef ULTIPANEL
     case 0: // M0 - Unconditional stop - Wait for user button press on LCD
@@ -5041,43 +5300,45 @@ void process_commands()
       RPI_ERROR_ACK_OFF();
       }
     break;
-    }
   }
+}
 
-  else if (recvd_command.cmd_type == 'T')
-  {
+FORCE_INLINE void manage_T_commands()
+{
     tmp_extruder = code_value();
-    if(tmp_extruder >= EXTRUDERS) {
-      SERIAL_ECHO_START;
-      SERIAL_ECHO("T");
-      SERIAL_ECHO(tmp_extruder);
-      SERIAL_ECHOLN(MSG_INVALID_EXTRUDER);
+    if (tmp_extruder >= EXTRUDERS) {
+        SERIAL_ECHO_START;
+        SERIAL_ECHO("T");
+        SERIAL_ECHO(tmp_extruder);
+        SERIAL_ECHOLN(MSG_INVALID_EXTRUDER);
+        return;
     }
-    else {
-      boolean make_move = false;
-      if(code_seen('F')) {
+
+    boolean make_move = false;
+    if (code_seen('F')) {
         make_move = true;
         next_feedrate = code_value();
-        if(next_feedrate > 0.0) {
-          feedrate = next_feedrate;
+        if (next_feedrate > 0.0) {
+            feedrate = next_feedrate;
         }
-      }
-      #if EXTRUDERS > 1
-      if(tmp_extruder != active_extruder) {
+    }
+
+#if EXTRUDERS > 1
+    if (tmp_extruder != active_extruder) {
         // Save current position to return to after applying extruder offset
         memcpy(destination, current_position, sizeof(destination));
-      #ifdef DUAL_X_CARRIAGE
+#ifdef DUAL_X_CARRIAGE
         if (dual_x_carriage_mode == DXC_AUTO_PARK_MODE && Stopped == false &&
             (delayed_move_time != 0 || current_position[X_AXIS] != x_home_pos(active_extruder)))
         {
-          // Park old head: 1) raise 2) move to park position 3) lower
-          plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS] + TOOLCHANGE_PARK_ZLIFT,
-                current_position[E_AXIS], max_feedrate[Z_AXIS], active_extruder);
-          plan_buffer_line(x_home_pos(active_extruder), current_position[Y_AXIS], current_position[Z_AXIS] + TOOLCHANGE_PARK_ZLIFT,
-                current_position[E_AXIS], max_feedrate[X_AXIS], active_extruder);
-          plan_buffer_line(x_home_pos(active_extruder), current_position[Y_AXIS], current_position[Z_AXIS],
-                current_position[E_AXIS], max_feedrate[Z_AXIS], active_extruder);
-          st_synchronize();
+            // Park old head: 1) raise 2) move to park position 3) lower
+            plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS] + TOOLCHANGE_PARK_ZLIFT,
+                  current_position[E_AXIS], max_feedrate[Z_AXIS], active_extruder);
+            plan_buffer_line(x_home_pos(active_extruder), current_position[Y_AXIS], current_position[Z_AXIS] + TOOLCHANGE_PARK_ZLIFT,
+                  current_position[E_AXIS], max_feedrate[X_AXIS], active_extruder);
+            plan_buffer_line(x_home_pos(active_extruder), current_position[Y_AXIS], current_position[Z_AXIS],
+                  current_position[E_AXIS], max_feedrate[Z_AXIS], active_extruder);
+            st_synchronize();
         }
 
         // apply Y & Z extruder offset (x offset is already used in determining home pos)
@@ -5087,78 +5348,92 @@ void process_commands()
         current_position[Z_AXIS] = current_position[Z_AXIS] -
                      extruder_offset[Z_AXIS][active_extruder] +
                      extruder_offset[Z_AXIS][tmp_extruder];
-
         active_extruder = tmp_extruder;
 
         // This function resets the max/min values - the current position may be overwritten below.
         axis_is_at_home(X_AXIS);
 
-        if (dual_x_carriage_mode == DXC_FULL_CONTROL_MODE)
-        {
-          current_position[X_AXIS] = inactive_extruder_x_pos;
-          inactive_extruder_x_pos = destination[X_AXIS];
-        }
-        else if (dual_x_carriage_mode == DXC_DUPLICATION_MODE)
-        {
-          active_extruder_parked = (active_extruder == 0); // this triggers the second extruder to move into the duplication position
-          if (active_extruder == 0 || active_extruder_parked)
+        if (dual_x_carriage_mode == DXC_FULL_CONTROL_MODE) {
             current_position[X_AXIS] = inactive_extruder_x_pos;
-          else
-            current_position[X_AXIS] = destination[X_AXIS] + duplicate_extruder_x_offset;
-          inactive_extruder_x_pos = destination[X_AXIS];
-          extruder_duplication_enabled = false;
+            inactive_extruder_x_pos = destination[X_AXIS];
         }
-        else
-        {
-          // record raised toolhead position for use by unpark
-          memcpy(raised_parked_position, current_position, sizeof(raised_parked_position));
-          raised_parked_position[Z_AXIS] += TOOLCHANGE_UNPARK_ZLIFT;
-          active_extruder_parked = true;
-          delayed_move_time = 0;
+        else if (dual_x_carriage_mode == DXC_DUPLICATION_MODE) {
+            active_extruder_parked = (active_extruder == 0); // this triggers the second extruder to move into the duplication position
+            if (active_extruder == 0 || active_extruder_parked)
+                current_position[X_AXIS] = inactive_extruder_x_pos;
+            else
+                current_position[X_AXIS] = destination[X_AXIS] + duplicate_extruder_x_offset;
+            inactive_extruder_x_pos = destination[X_AXIS];
+            extruder_duplication_enabled = false;
         }
-      #else
+        else {
+            // record raised toolhead position for use by unpark
+            memcpy(raised_parked_position, current_position, sizeof(raised_parked_position));
+            raised_parked_position[Z_AXIS] += TOOLCHANGE_UNPARK_ZLIFT;
+            active_extruder_parked = true;
+            delayed_move_time = 0;
+        }
+#else
         // Offset extruder (only by XY)
-        int i;
-        for(i = 0; i < 2; i++) {
+        for (int i = 0; i < 2; i++) {
            current_position[i] = current_position[i] -
                                  extruder_offset[i][active_extruder] +
                                  extruder_offset[i][tmp_extruder];
         }
         // Set the new active extruder and position
         active_extruder = tmp_extruder;
-      #endif //else DUAL_X_CARRIAGE
-#ifdef DELTA 
+#endif //else DUAL_X_CARRIAGE
 
-  calculate_delta(current_position); // change cartesian kinematic  to  delta kinematic;
-   //sent position to plan_set_position();
-  plan_set_position(delta[X_AXIS], delta[Y_AXIS], delta[Z_AXIS],current_position[E_AXIS]);
-            
+#ifdef DELTA 
+        calculate_delta(current_position); // change cartesian kinematic  to  delta kinematic;
+        //sent position to plan_set_position();
+        plan_set_position(delta[X_AXIS], delta[Y_AXIS], delta[Z_AXIS],current_position[E_AXIS]);
 #else
         plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-
 #endif
         // Move to the old position if 'F' was in the parameters
-        if(make_move && Stopped == false) {
-           prepare_move();
+        if (make_move && Stopped == false) {
+             prepare_move();
         }
-      }
-      #endif
-      SERIAL_ECHO_START;
-      SERIAL_ECHO(MSG_ACTIVE_EXTRUDER);
-      SERIAL_PROTOCOLLN((int)active_extruder);
     }
-  }
-
-  else
-  {
+#endif
     SERIAL_ECHO_START;
-    SERIAL_ECHOPGM(MSG_UNKNOWN_COMMAND);
-    SERIAL_ECHO(cmdbuffer[bufindr]);
-    SERIAL_ECHOLNPGM("\"");
-  }
-
-  ClearToSend();
+    SERIAL_ECHO(MSG_ACTIVE_EXTRUDER);
+    SERIAL_PROTOCOLLN((int)active_extruder);
 }
+
+void process_commands()
+{
+    enum errors_e err;
+
+    err = parse_gline(cmdbuffer[bufindr]);
+    if (err == E_INVALID_CMD) {
+        SERIAL_ERRORPGM(MSG_ERR_INVALID_COMMAND ": ");
+        SERIAL_ECHOLN(cmdbuffer[bufindr]);
+        return;
+    }
+
+    if (recvd_command.cmd_type == 'G') {
+        manage_G_commands();
+    }
+    else if (recvd_command.cmd_type == 'M')
+    {
+        manage_M_commands();
+    }
+    else if (recvd_command.cmd_type == 'T') {
+        manage_T_commands();
+    }
+    else {
+        SERIAL_ECHO_START;
+        SERIAL_ECHOPGM(MSG_UNKNOWN_COMMAND);
+        SERIAL_ECHO(cmdbuffer[bufindr]);
+        SERIAL_ECHOLNPGM("\"");
+    }
+
+    ClearToSend();
+}
+
+
 
 void FlushSerialRequestResend()
 {

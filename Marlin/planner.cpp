@@ -615,14 +615,26 @@ block->steps_x = labs((target[X_AXIS]-position[X_AXIS]) - (target[Y_AXIS]-positi
   }
 
   block->fan_speed = fanSpeed;
-  #ifdef BARICUDA
+#ifdef BARICUDA
   block->valve_pressure = ValvePressure;
   block->e_to_p_pressure = EtoPPressure;
-  #endif
+#endif
 
   // Compute direction bits for this block 
   block->direction_bits = 0;
-#ifndef COREXY
+
+#ifdef COREXY
+  if ((target[X_AXIS]-position[X_AXIS]) + (target[Y_AXIS]-position[Y_AXIS]) < 0)
+  {
+    block->direction_bits |= (1<<Y_AXIS);
+   //block->direction_bits |= (1<<X_AXIS);
+  }
+  if ((target[X_AXIS]-position[X_AXIS]) - (target[Y_AXIS]-position[Y_AXIS]) < 0)
+  {
+    block->direction_bits |= (1<<X_AXIS);
+   //block->direction_bits |= (1<<Y_AXIS);  
+  }
+#else
   if (target[X_AXIS] < position[X_AXIS])
   {
     block->direction_bits |= (1<<X_AXIS); 
@@ -631,18 +643,8 @@ block->steps_x = labs((target[X_AXIS]-position[X_AXIS]) - (target[Y_AXIS]-positi
   {
     block->direction_bits |= (1<<Y_AXIS); 
   }
-#else
-  if ((target[X_AXIS]-position[X_AXIS]) + (target[Y_AXIS]-position[Y_AXIS]) < 0)
-  {
-    block->direction_bits |= (1<<Y_AXIS);
-   //block->direction_bits |= (1<<X_AXIS);  
-  }
-  if ((target[X_AXIS]-position[X_AXIS]) - (target[Y_AXIS]-position[Y_AXIS]) < 0)
-  {
-    block->direction_bits |= (1<<X_AXIS);
-   //block->direction_bits |= (1<<Y_AXIS);  
-  }
 #endif
+
   if (target[Z_AXIS] < position[Z_AXIS])
   {
     block->direction_bits |= (1<<Z_AXIS); 
@@ -655,18 +657,18 @@ block->steps_x = labs((target[X_AXIS]-position[X_AXIS]) - (target[Y_AXIS]-positi
   block->active_extruder = extruder;
 
   //enable active axes
-  #ifdef COREXY
-  if((block->steps_x != 0) || (block->steps_y != 0))
+#ifdef COREXY
+  if ((block->steps_x != 0) || (block->steps_y != 0))
   {
     enable_x();
     enable_y();
   }
-  #else
-  if(block->steps_x != 0) enable_x();
-  if(block->steps_y != 0) enable_y();
-  #endif
+#else
+  if (block->steps_x != 0) enable_x();
+  if (block->steps_y != 0) enable_y();
+#endif
 #ifndef Z_LATE_ENABLE
-  if(block->steps_z != 0) enable_z();
+  if (block->steps_z != 0) enable_z();
 #endif
 
   // Enable all
