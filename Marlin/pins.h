@@ -920,9 +920,8 @@
 //#define	SCL	21
 //#define	SDA	20
 #define	MILL_MOTOR_ON_PIN	41
-
-#define NOT_SERVO1_ON_PIN 25
-#define NOT_SERVO2_ON_PIN 27
+#define NOT_SERVO1_ON_PIN 23
+#define NOT_SERVO2_ON_PIN 25
 
 //additional analog
 #define MAIN_CURRENT_SENSE_PIN	12 // ANALOG NUMBERING

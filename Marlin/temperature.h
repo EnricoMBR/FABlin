@@ -206,10 +206,13 @@ FORCE_INLINE float MainCurrent() {
 #error Invalid number of extruders
 #endif
 
-#define LSB_VALUE  0.00488
-#define DIV_24V    11
-#define DIV_5V     2
-#define DIV_CURR   3.106
+#define LSB_VALUE   0.004882
+#define DIV_24V    10.760384
+#define DIV_5V      2.000000
+#define DIV_CURR    3.001729
+//#define DIV_24V    11
+//#define DIV_5V     2
+//#define DIV_CURR   3.106
 
 //#define MAX_PWM    127
 

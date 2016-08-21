@@ -15,7 +15,7 @@
 // User-specified version info of this build to display in [Pronterface, etc] terminal window during
 // startup. Implementation of an idea by Prof Braino to inform user that any changes made to this
 // build by the user have been successfully uploaded into firmware.
-#define STRING_BUILD_VERSION  "V 1.0.0095.1-at0.4"
+#define STRING_BUILD_VERSION  "V 1.0.0095.1-atdev"
 #define STRING_BUILD_DATE __DATE__ " " __TIME__ // build date and time
 #define STRING_CONFIG_H_AUTHOR "FABteam" // Who made the changes.
 
@@ -549,7 +549,7 @@ extern bool Z_MAX_ENDSTOP_INVERTING;
 //// MOVEMENT SETTINGS
 #define NUM_AXIS 4 // The axis order in all axis related arrays is X, Y, Z, E
 //#define HOMING_FEEDRATE {50*60, 50*60, 4*60, 0}  // set the homing speeds (mm/min)
-#define HOMING_FEEDRATE {3000, 3000, 200, 0}  // set the homing speeds (mm/min)
+#define HOMING_FEEDRATE {5000, 5000, 200, 0}  // set the homing speeds (mm/min)
 
 // FABtotum mechanical proprieties:
 // NOTE: 1/16 microstepping!!

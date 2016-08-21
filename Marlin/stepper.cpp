@@ -79,7 +79,7 @@ bool abort_on_endstop_hit = false;
 #ifdef MOTOR_CURRENT_PWM_XY_PIN
   int motor_current_setting[3] = DEFAULT_PWM_MOTOR_CURRENT;
 #endif
-/*
+
 static bool old_x_min_endstop=false;
 static bool old_x_max_endstop=false;
 static bool old_y_min_endstop=false;
@@ -87,7 +87,7 @@ static bool old_y_max_endstop=false;
 static bool old_z_min_endstop=false;
 static bool old_z_max_endstop=false;
 static bool old_external_z_endstop=false;
-*/
+
 static bool check_endstops = true;
 
 #ifdef EXTERNAL_ENDSTOP_Z_PROBING
@@ -512,8 +512,9 @@ ISR(TIMER1_COMPA_vect)
                 MARK_Z_ENDSTOP_HIT(true);
         }
         else if (MOVEMENT_Z_PLUS(out_bits)) {
-            if (z_max_endstop && current_block->steps_z > 0)
+            if (z_max_endstop && current_block->steps_z > 0) {
                 MARK_Z_ENDSTOP_HIT(true);
+            }
         }   
 
 #if defined(EXTERNAL_ENDSTOP_Z_PROBING)
