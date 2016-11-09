@@ -2073,20 +2073,44 @@ void process_commands()
             }
           #else                      // Z Safe mode activated.
             if(home_all_axis) {
+
+            }
+/*** Zmax axis crash fix - 09/11/2016 ***/
+              // Move XY to safe_homing position
+              // Endstops are disabled as XY was just homed.
               enable_endstops(false);
               destination[X_AXIS] = round(Z_SAFE_HOMING_X_POINT);
               destination[Y_AXIS] = round(Z_SAFE_HOMING_Y_POINT);
-              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
-              feedrate = XY_TRAVEL_SPEED;
-              current_position[Z_AXIS] = 0;
-  
+              destination[Z_AXIS] = current_position[Z_AXIS]; 
+              destination[E_AXIS] = current_position[E_AXIS]; 
+              feedrate = XY_SLOW_FEEDRATE;
+              
               plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
               plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
               st_synchronize();
               current_position[X_AXIS] = destination[X_AXIS];
               current_position[Y_AXIS] = destination[Y_AXIS];
-              enable_endstops(true);
+              
+              enable_endstops(true);  
+
+              // Now that the XY have been positioned we are going to try to
+              // move the Z axis down if possible to avoid the probe hitting
+              // the bed during extending.
+/*** END Zmax axis crash fix - 09/11/2016 ***/
+              destination[X_AXIS] = round(Z_SAFE_HOMING_X_POINT);
+              destination[Y_AXIS] = round(Z_SAFE_HOMING_Y_POINT);
+              destination[Z_AXIS] = Z_RAISE_BEFORE_HOMING * home_dir(Z_AXIS) * (-1);    // Set destination away from bed
+              feedrate = XY_TRAVEL_SPEED;
+              current_position[Z_AXIS] = 0; 
+              plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+              plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+              st_synchronize();
+              current_position[X_AXIS] = destination[X_AXIS];
+              current_position[Y_AXIS] = destination[Y_AXIS];
+
+              // enable_endstops(true)
               HOMEAXIS(Z);
+
             }
           }
                     // Let's see if X and Y are homed and probe is inside bed area.
