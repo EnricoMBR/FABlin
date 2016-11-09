@@ -545,7 +545,7 @@ enum errors_e {
 typedef struct {   
     bool has_checksum;
     unsigned char checksum;
-    unsigned long line_number;
+    //unsigned long line_number;
 
     char cmd_type;
     unsigned short cmd_code;
@@ -761,13 +761,13 @@ void FabtotumIO_init()
     pinMode(NOT_SERVO2_ON_PIN,OUTPUT);
     
     //setting analog as input
-    pinMode(MAIN_CURRENT_SENSE_PIN,INPUT);
-    pinMode(MON_5V_PIN,INPUT);
-    pinMode(MON_24V_PIN,INPUT);
-    pinMode(PRESSURE_ANALOG_PIN,INPUT);
+    pinMode(analogInputToDigitalPin(MAIN_CURRENT_SENSE_PIN), INPUT);
+    pinMode(analogInputToDigitalPin(MON_5V_PIN), INPUT);
+    pinMode(analogInputToDigitalPin(MON_24V_PIN), INPUT);
+    pinMode(analogInputToDigitalPin(PRESSURE_ANALOG_PIN), INPUT);
     
     pinMode(NOT_REEL_LENS_OPEN_PIN,OUTPUT);
-    
+
     //POWER MABNAHGEMENT
     pinMode(51, OUTPUT);  //set external PSU shutdown pin (Optional on I2C)
     digitalWrite(51, HIGH);
@@ -815,7 +815,7 @@ void FabtotumIO_init()
     GreenSoftPwm=0;
     BlueSoftPwm=0;
     
-    servos[0].write(SERVO_SPINDLE_ZERO);       //set Zero POS for SERVO1  (MILL MOTOR input: 1060 us equal to Full CCW, 1460us equal to zero, 1860us equal to Full CW)
+    //servos[0].write(SERVO_SPINDLE_ZERO);       //set Zero POS for SERVO1  (MILL MOTOR input: 1060 us equal to Full CCW, 1460us equal to zero, 1860us equal to Full CW)
     servos[1].write(950);        //set Zero POS for SERVO2  (servo probe)
     
     triggered_kill=false;
@@ -1076,20 +1076,12 @@ inline static float code_value_float()
 inline static enum errors_e calculate_checksum(char* str)
 {  
     unsigned long line_num;
-    char* spurious;
 
     recvd_command.has_checksum = false;
     recvd_command.checksum = 0;
 
     if (*str == 'N') {
-        line_num = (unsigned long)strtoul(str+1, &spurious, 10);
-        // strtoul must consume the argument until the space separator
-        if (*spurious != ' ')
-            return E_INVALID_CMD;
-
-        if (recvd_command.line_number != (line_num - 1))
-            return E_CHKSUM_ERR_LINE_NO;
-
+        line_num = (unsigned long)strtoul(str+1, NULL, 10);
         recvd_command.has_checksum = true;
     }
 
@@ -1100,12 +1092,15 @@ inline static enum errors_e calculate_checksum(char* str)
         if (!recvd_command.has_checksum) {
             return E_CHKSUM_NO_N_WITH_STAR;
         }
-        else if (recvd_command.checksum == (unsigned char)strtoul(str+1, NULL, 10)) {
-            recvd_command.line_number = line_num;
-            return E_OK;
+        else if (recvd_command.checksum != (unsigned char)strtoul(str+1, NULL, 10)) {
+            return E_CHKSUM_MISMATCH;
+        }
+        else if (gcode_LastN != (line_num - 1)) {
+            return E_CHKSUM_ERR_LINE_NO;
         }
         else {
-            return E_CHKSUM_MISMATCH;
+            gcode_LastN = line_num;
+            return E_OK;          
         }
     }
     else if (recvd_command.has_checksum) {
@@ -1164,6 +1159,11 @@ rescan_token:
             }
             recvd_command.cmd_type = prefix;
             recvd_command.cmd_code = (unsigned short)strtoul(token, &spurious, 10);
+            // Specialcasing M117 because it uses a non-validable format.
+             if (prefix == 'M' && recvd_command.cmd_code == 117) {
+                strchr_pointer = line;
+                return E_OK;
+            }
             if (*spurious != '\0' && *spurious != '*') {
                 return E_INVALID_CMD;
             }
@@ -1249,19 +1249,19 @@ void get_command()
                     }
                     else if (err == E_CHKSUM_MISMATCH) {
                         SERIAL_ERRORPGM(MSG_ERR_CHECKSUM_MISMATCH);
-                        SERIAL_ERRORLN(recvd_command.line_number);
+                        SERIAL_ERRORLN(gcode_LastN);
                     }
                     else if (err == E_CHKSUM_NO_STAR_WITH_N) {
                         SERIAL_ERRORPGM(MSG_ERR_NO_CHECKSUM);
-                        SERIAL_ERRORLN(recvd_command.line_number);
+                        SERIAL_ERRORLN(gcode_LastN);
                     }
                     else if (err == E_CHKSUM_NO_N_WITH_STAR) {
                         SERIAL_ERRORPGM(MSG_ERR_NO_LINENUMBER_WITH_CHECKSUM);
-                        SERIAL_ERRORLN(recvd_command.line_number);
+                        SERIAL_ERRORLN(gcode_LastN);
                     }
                     else if (err == E_CHKSUM_ERR_LINE_NO) {
                         SERIAL_ERRORPGM(MSG_ERR_LINE_NO);
-                        SERIAL_ERRORLN(recvd_command.line_number);
+                        SERIAL_ERRORLN(gcode_LastN);
                     }
                     FlushSerialRequestResend();
                     serial_count = 0;
@@ -1510,10 +1510,10 @@ static void run_fast_external_z_endstop() {
 #endif
 
 
-static void do_blocking_move_to(float x, float y, float z) {
+static void do_blocking_move_to(float x, float y, float z, float fr) {
     float oldFeedRate = feedrate;
 
-    feedrate = XY_TRAVEL_SPEED;
+    feedrate = fr;
 
     current_position[X_AXIS] = x;
     current_position[Y_AXIS] = y;
@@ -1522,6 +1522,10 @@ static void do_blocking_move_to(float x, float y, float z) {
     st_synchronize();
 
     feedrate = oldFeedRate;
+}
+
+static void do_blocking_move_to(float x, float y, float z) {
+    do_blocking_move_to(x, y, z, XY_TRAVEL_SPEED);
 }
 
 static void do_blocking_move_relative(float offset_x, float offset_y, float offset_z) {
@@ -1659,125 +1663,143 @@ static float probe_pt_no_engz(float x, float y, float z_before, bool engage_z_fl
 #endif // #ifdef ENABLE_AUTO_BED_LEVELING
 
 static void homeaxis(int axis) {
-#define HOMEAXIS_DO(LETTER) \
-  ((LETTER##_MIN_PIN > -1 && LETTER##_HOME_DIR==-1) || (LETTER##_MAX_PIN > -1 && LETTER##_HOME_DIR==1))
 
-  if (axis==X_AXIS ? HOMEAXIS_DO(X) :
-      axis==Y_AXIS ? HOMEAXIS_DO(Y) :
-      axis==Z_AXIS ? HOMEAXIS_DO(Z) :
+#define HOMEAXIS_DO(LETTER) \
+  ((LETTER##_MIN_PIN > -1 && LETTER##_HOME_DIR == -1) || (LETTER##_MAX_PIN > -1 && LETTER##_HOME_DIR == 1))
+
+  if (axis == X_AXIS ? HOMEAXIS_DO(X) :
+      axis == Y_AXIS ? HOMEAXIS_DO(Y) :
+      axis == Z_AXIS ? HOMEAXIS_DO(Z) :
       0) {
+
     int axis_home_dir = home_dir(axis);
     
-    if(home_Z_reverse && axis==Z_AXIS)
-    {axis_home_dir =axis_home_dir *-1;}
-    
-    if(x_axis_endstop_sel && axis==X_AXIS)
-    {axis_home_dir =axis_home_dir *-1;}
+    if (axis == Z_AXIS && home_Z_reverse) {
+        axis_home_dir = -axis_home_dir;
+    }
+    if (axis == X_AXIS && x_axis_endstop_sel) {
+        axis_home_dir = -axis_home_dir;
+    }
     
 #ifdef DUAL_X_CARRIAGE
     if (axis == X_AXIS)
       axis_home_dir = x_home_dir(active_extruder);
 #endif
 
+    
     current_position[axis] = 0;
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
 
-
     // Engage Servo endstop if enabled
-    #ifdef SERVO_ENDSTOPS
-      #if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
-        if (axis==Z_AXIS & z_probe_activation) {
-          engage_z_probe();
-        }
-	    else
-      #endif
-      if (servo_endstops[axis] > -1) {
+#ifdef SERVO_ENDSTOPS
+#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+    if (axis == Z_AXIS & z_probe_activation) {
+        engage_z_probe();
+    }
+	  else
+#endif // defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+    if (servo_endstops[axis] > -1) {
         servos[servo_endstops[axis]].write(servo_endstop_angles[axis * 2]);
-      }
-    #endif
+    }
+#endif
 
     destination[axis] = 1.5 * max_length(axis) * axis_home_dir;
     feedrate = homing_feedrate[axis];
     
-    if(home_Z_reverse && axis==Z_AXIS)              //speedup G27 (reversed Z homing)
+    if (axis == Z_AXIS && home_Z_reverse)              //speedup G27 (reversed Z homing)
     { // Movement of Z downwards to endstops...
-	feedrate = homing_feedrate[axis]*6;
+	    feedrate = homing_feedrate[axis]*6;
     }
-    
+
+    // First homing movement
+    do_blocking_move_to(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], feedrate);
+
+/*
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
     st_synchronize();
-    if (!home_Z_reverse && axis==Z_AXIS) set_amb_color_fading(false,true,false,fading_speed);
+*/
+    if (axis == Z_AXIS && !home_Z_reverse)
+        set_amb_color_fading(false, true, false, fading_speed);
+
+    // Move away from the endstop... how this was working without this line?!
+    endstops_hit_on_purpose();
 
     current_position[axis] = 0;
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
     destination[axis] = -home_retract_mm(axis) * axis_home_dir;
+/*
     plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
     st_synchronize();
+*/
+    do_blocking_move_to(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], feedrate);
+
     if (!home_Z_reverse && axis==Z_AXIS) {
       set_amb_color_fading(false,true,false,fading_speed);
       retract_z_probe();
       engage_z_probe();
     }
 
-    destination[axis] = 2*home_retract_mm(axis) * axis_home_dir;
+    destination[axis] = 2 * home_retract_mm(axis) * axis_home_dir;
+
 #ifdef DELTA
-    feedrate = homing_feedrate[axis]/5;
+    feedrate = homing_feedrate[axis] / 5;
 #else
-    feedrate = homing_feedrate[axis]/2 ;
+    feedrate = homing_feedrate[axis] / 2;
 
     if (!home_Z_reverse && axis==Z_AXIS) {
-    feedrate = homing_feedrate[axis]/10 ;
+        feedrate = homing_feedrate[axis]/10 ;
     }
-
 #endif
-    plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-    st_synchronize();
+
+    do_blocking_move_to(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], feedrate);
+
 #ifdef DELTA
     // retrace by the amount specified in endstop_adj
     if (endstop_adj[axis] * axis_home_dir < 0) {
-      plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-      destination[axis] = endstop_adj[axis];
-      plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-      st_synchronize();
+        plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+        destination[axis] = endstop_adj[axis];
+        do_blocking_move_to(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], feedrate);
     }
 #endif
+
     axis_is_at_home(axis);
     destination[axis] = current_position[axis];
-    feedrate = 0.0;
+
     endstops_hit_on_purpose();
     axis_known_position[axis] = true;
+
     if(x_axis_endstop_sel && axis==X_AXIS)
-      {
+    {
         plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
         enable_endstops(false);
-        do_blocking_move_relative(-1,0,0);
+        do_blocking_move_relative(-1, 0, 0);
         enable_endstops(true);
-      }
+    }
 
     // Retract Servo endstop if enabled
-    #ifdef SERVO_ENDSTOPS
-      if (servo_endstops[axis] > -1) {
+#ifdef SERVO_ENDSTOPS
+    if (servo_endstops[axis] > -1) {
         servos[servo_endstops[axis]].write(servo_endstop_angles[axis * 2 + 1]);
-      }
-    #endif
-#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
-    if (axis==Z_AXIS & z_probe_activation){
-      clean_up_after_endstop_move();
-      plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+2, current_position[E_AXIS], 5, active_extruder);
-      st_synchronize();
-      retract_z_probe();
-      //_delay_ms(100);
-      plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]-4, current_position[E_AXIS], 5, active_extruder);
-      st_synchronize();
     }
-#endif
+#endif // SERVO_ENDSTOPS
+
+#if defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
+    if (axis == Z_AXIS & z_probe_activation){
+        clean_up_after_endstop_move();
+        do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]+2, 5*60);
+        retract_z_probe();
+        do_blocking_move_to(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS]-4, 5*60);
+    }
+#endif // defined (ENABLE_AUTO_BED_LEVELING) && (PROBE_SERVO_DEACTIVATION_DELAY > 0)
 
   }
 }
+
 #define HOMEAXIS(LETTER) homeaxis(LETTER##_AXIS)
+
 void refresh_cmd_timeout(void)
 {
-  previous_millis_cmd = millis();
+    previous_millis_cmd = millis();
 }
 
 #ifdef FWRETRACT
@@ -1897,20 +1919,22 @@ void process_commands()
       #endif //FWRETRACT
       
     case 27: //G27 Home all Axis one at a time explicit without Zprobe
-      z_probe_activation=false;
-      home_Z_reverse= true;
+      z_probe_activation = false;
+      home_Z_reverse = true;
     case 28: //G28 Home all Axis one at a time
     if(!Stopped){
+
+        saved_feedrate = feedrate;
+        saved_feedmultiply = feedmultiply;
+
         retract_z_probe(); //Safety first.
   #ifdef ENABLE_AUTO_BED_LEVELING
         plan_bed_level_matrix.set_to_identity();  //Reset the plane ("erase" all leveling data)
   #endif //ENABLE_AUTO_BED_LEVELING
   
         store_last_amb_color();
-        set_amb_color(0,255,0);       
-        
-        saved_feedrate = feedrate;
-        saved_feedmultiply = feedmultiply;
+        set_amb_color(0,255,0);
+
         feedmultiply = 100;
         previous_millis_cmd = millis();
   
@@ -1928,17 +1952,18 @@ void process_commands()
         for(int8_t i=0; i < NUM_AXIS; i++) {
           destination[i] = current_position[i];
         }
-        feedrate = 0.0;
   
         home_all_axis = !((code_seen(axis_codes[X_AXIS])) || (code_seen(axis_codes[Y_AXIS])) || (code_seen(axis_codes[Z_AXIS])));
   
         //#if Z_HOME_DIR > 0                      // If homing away from BED do Z first
         if (Z_HOME_DIR > 0 || home_Z_reverse)
-        if((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
-          HOMEAXIS(Z);
+        if ((home_all_axis) || (code_seen(axis_codes[Z_AXIS]))) {
+            HOMEAXIS(Z);
         }
         //#endif
-        if(Stopped){break;}
+        if (Stopped) {
+            goto premature_exit;
+        }
   
         #ifdef QUICK_HOME
         if((home_all_axis)||( code_seen(axis_codes[X_AXIS]) && code_seen(axis_codes[Y_AXIS])) )  //first diagonal move
@@ -1973,7 +1998,7 @@ void process_commands()
           destination[X_AXIS] = current_position[X_AXIS];
           destination[Y_AXIS] = current_position[Y_AXIS];
           plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate/60, active_extruder);
-          feedrate = 0.0;
+          feedrate = prev_feedrate;
           st_synchronize();
           endstops_hit_on_purpose();
   
@@ -1983,7 +2008,9 @@ void process_commands()
         }
         #endif
         
-        if(Stopped){break;}
+        if (Stopped) {
+            goto premature_exit;
+        }
         
         if((home_all_axis) || (code_seen(axis_codes[X_AXIS])))
         {
@@ -2005,7 +2032,9 @@ void process_commands()
         #endif
         }
   
-        if(Stopped){break;}
+        if (Stopped) {
+            goto premature_exit;
+        }
         
         if((home_all_axis) || (code_seen(axis_codes[Y_AXIS]))) {
           zeroed_far_from_home_y=false;
@@ -2025,7 +2054,9 @@ void process_commands()
           }
         }
         
-        if(Stopped){break;}
+        if (Stopped) {
+            goto premature_exit;
+        }
         
         if(!home_Z_reverse){
         #if Z_HOME_DIR < 0                      // If homing towards BED do Z last
@@ -2106,34 +2137,46 @@ void process_commands()
           enable_endstops(false);
         #endif
   
-        feedrate = saved_feedrate;
-        feedmultiply = saved_feedmultiply;
         previous_millis_cmd = millis();
         endstops_hit_on_purpose();
-        }
-      z_probe_activation=true;
-      home_Z_reverse=false;
-      
+      }
+
+      enable_endstops(false);
+
+      //Z movement move to 50 if g27 just happened.
+      if ( (home_all_axis && !z_probe_activation) || code_seen(axis_codes[X_AXIS]) || code_seen(axis_codes[Y_AXIS]) )
+      {
+          if (x_axis_endstop_sel) { // If homing with XMAX, move to the right ...
+              destination[X_AXIS] = current_position[X_AXIS]-2; 
+              destination[Y_AXIS] = current_position[Y_AXIS]+2;
+          }
+          else { // ... else to the left.
+              destination[X_AXIS] = current_position[X_AXIS]+2;
+              destination[Y_AXIS] = current_position[Y_AXIS]+2;
+          }
+          destination[Z_AXIS] = current_position[Z_AXIS]; 
+          destination[E_AXIS] = current_position[E_AXIS];    
+          feedrate = max_feedrate[Z_AXIS];
+          plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
+    
+          current_position[X_AXIS] = destination[X_AXIS];
+          current_position[Y_AXIS] = destination[Y_AXIS];
+          current_position[Z_AXIS] = destination[Z_AXIS];
+          plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+    
+          st_synchronize();
+      }
+
+premature_exit:
+      z_probe_activation = true;
+      home_Z_reverse = false;
+
+      feedrate = saved_feedrate;
+      feedmultiply = saved_feedmultiply;
+
+      stop_fading();
       restore_last_amb_color();
-      
-      
-       enable_endstops(false);
-       //Z movement move to 50 if g27 just happened.
-       destination[X_AXIS] = current_position[X_AXIS]+2; 
-       destination[Y_AXIS] = current_position[Y_AXIS]+2; 
-       destination[Z_AXIS] = current_position[Z_AXIS]; 
-       destination[E_AXIS] = current_position[E_AXIS];    
-       feedrate = max_feedrate[Z_AXIS];
-       plan_buffer_line(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS], destination[E_AXIS], feedrate, active_extruder);
-
-      current_position[X_AXIS] = destination[X_AXIS];
-      current_position[Y_AXIS] = destination[Y_AXIS];
-      current_position[Z_AXIS] = destination[Z_AXIS];
-      plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-
-       st_synchronize();
-       enable_endstops(true);
-       
+      enable_endstops(true);
 
       break;
 
@@ -2406,6 +2449,19 @@ void process_commands()
         }
         break;        
 #endif //ENDSTOP_Z_PROBING
+
+    case 999:
+        for (char i = 0; i < 2; i++) {
+          current_position[i] += 10;
+        }
+        plan_buffer_line(current_position[X_AXIS], current_position[Y_AXIS],
+                         current_position[Z_AXIS], current_position[E_AXIS],
+                         16 /* mm/s */, active_extruder);
+        st_synchronize();
+        plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+        SERIAL_PROTOCOLLNPGM("(G999 done)");
+    break;
+
     case 90: // G90
       relative_mode = false;
       break;
@@ -2611,21 +2667,23 @@ void process_commands()
       {
         int pin_status = code_value();
         int pin_number = LED_PIN;
+        bool found = false;
         if (code_seen('P') && pin_status >= 0 && pin_status <= 255)
           pin_number = code_value();
         for(int8_t i = 0; i < (int8_t)sizeof(sensitive_pins); i++)
         {
           if (sensitive_pins[i] == pin_number)
           {
-            pin_number = -1;
+            found = true;
             break;
           }
         }
+
       #if defined(FAN_PIN) && FAN_PIN > -1
         if (pin_number == FAN_PIN)
           fanSpeed = pin_status;
       #endif
-        if (pin_number > -1)
+        if (found)
         {
           pinMode(pin_number, OUTPUT);
           digitalWrite(pin_number, pin_status);
@@ -2876,14 +2934,21 @@ void process_commands()
 
     #if defined(FAN_PIN) && FAN_PIN > -1
       case 106: //M106 Fan On
+        // wait until the last movement has finished.
+        st_synchronize();
+
         if (code_seen('S')){
            fanSpeed=constrain(code_value(),0,255);
         }
         else {
           fanSpeed=255;
         }
+
         break;
       case 107: //M107 Fan Off
+        // wait until the last movement has finished.
+        st_synchronize();
+
         fanSpeed = 0;
         break;
     #endif //FAN_PIN
@@ -3978,7 +4043,7 @@ void process_commands()
       else
       {
           SERIAL_PROTOCOL("X axis now use: ");
-          if(x_axis_endstop_sel)
+          if (x_axis_endstop_sel)
           {
             SERIAL_PROTOCOLLN("Max endstop");
           }
@@ -4048,11 +4113,9 @@ void process_commands()
     case 728:// M728 - RASPI ALIVE
     {
       //Stopped = false;
-      set_amb_color(255,255,255);
       store_last_amb_color();
       stop_fading();
       restore_last_amb_color();
-
       M728_BEEP(silent);
 
     }
@@ -4099,9 +4162,9 @@ void process_commands()
         BEEP_OFF();
         delay(100);
       }
-      
-      set_amb_color(0,0,0);
-      store_last_amb_color();
+
+      //store_last_amb_color();
+      //set_amb_color(0,0,0);
       set_amb_color_fading(true,true,true,fading_speed);
       //_delay_ms(45000);
       //restore_last_amb_color();
@@ -4275,9 +4338,7 @@ void process_commands()
       break;
       
    case 4: // M4 S[RPM] SPINDLE ON - CounterClockwise  (MILL MOTOR input: 1060 us equal to Full CCW, 1460us equal to zero, 1860us equal to Full CW)
-      {
-        
-        
+      {    
         //wait
         codenum=1500;       
         st_synchronize();
@@ -4382,30 +4443,29 @@ void process_commands()
         enable_endstops(false);
         
         if(!MILL_MOTOR_STATUS())
-            {
+        {
             if ((servo_index >= 0) && (servo_index < NUM_SERVOS))
-              {
-         servos[servo_index].attach(0);
-               servos[servo_index].write(servo_position);
-              }
-      MILL_MOTOR_ON();
-          SERVO1_ON();
-          fanSpeed=255;
-          
-      //_delay_ms(2000);
-          //servos[servo_index].write(SERVO_SPINDLE_ARM);
-          //_delay_ms(1000);
-          //servos[servo_index].write(servo_position);
-          //_delay_ms(500);
-          
-      }
+            {
+                servos[servo_index].attach(0);
+                servos[servo_index].write(servo_position);
+            }
+            MILL_MOTOR_ON();
+            SERVO1_ON();
+            fanSpeed = 255;
+  
+            //_delay_ms(2000);
+            //servos[servo_index].write(SERVO_SPINDLE_ARM);
+            //_delay_ms(1000);
+            //servos[servo_index].write(servo_position);
+            //_delay_ms(500);
+        }
         
         if (code_seen('S')) {
-          int pwm = code_value();
-          if(pwm<=0)
-            {pwm=0;}
-          if(pwm>=255)
-            {pwm=255;}
+            int pwm = code_value();
+            if(pwm<=0)
+              {pwm=0;}
+            if(pwm>=255)
+              {pwm=255;}
         }
 
          SERIAL_PROTOCOL(MSG_OK);
@@ -5005,8 +5065,22 @@ void process_commands()
     }
     break;        
 #endif
-    
-      
+
+   case 805: {
+      extern int current_temperature_raw[EXTRUDERS];
+      extern volatile float thermistor_offset;
+
+      if (code_seen('S')) {
+          thermistor_offset = code_value();
+      }
+      else {
+          SERIAL_PROTOCOLPGM("Extruder0 ADC value: ");
+          SERIAL_PROTOCOL(current_temperature_raw[0]/OVERSAMPLENR);
+          SERIAL_PROTOCOLPGM(" - Offset: ");
+          SERIAL_PROTOCOLLN(thermistor_offset);
+      }
+   }
+   break;    
       
    case 998: // M998: Restart after being killed
       {

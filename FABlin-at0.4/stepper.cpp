@@ -332,196 +332,260 @@ FORCE_INLINE void trapezoid_generator_reset() {
 // It pops blocks from the block_buffer and executes them by pulsing the stepper pins appropriately.
 
 /* MODIFIED VERSION */
+#define COREXY_A_DEC(msk)     (((msk) & (1<<X_AXIS)) != 0)
+#define COREXY_A_INC(msk)     (((msk) & (1<<X_AXIS)) == 0)
+#define COREXY_B_DEC(msk)     (((msk) & (1<<Y_AXIS)) != 0)
+#define COREXY_B_INC(msk)     (((msk) & (1<<Y_AXIS)) == 0)
+#define MOVEMENT_Z_MINUS(msk) (((msk) & (1<<Z_AXIS)) != 0)
+#define MOVEMENT_Z_PLUS(msk)  (((msk) & (1<<Z_AXIS)) == 0)
+
+#define MARK_X_ENDSTOP_HIT(val) do { endstops_trigsteps[X_AXIS] = count_position[X_AXIS]; endstop_x_hit = (val); } while (0)
+#define MARK_Y_ENDSTOP_HIT(val) do { endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS]; endstop_y_hit = (val); } while (0)
+#define MARK_Z_ENDSTOP_HIT(val) do { endstops_trigsteps[Z_AXIS] = count_position[Z_AXIS]; endstop_z_hit = (val); } while (0)
+
+/* MODIFIED VERSION */
 ISR(TIMER1_COMPA_vect)
 {
     // If there is no current block, attempt to pop one from the buffer
     if (current_block == NULL) {
         // Anything in the buffer?
         current_block = plan_get_current_block();
-        if (current_block != NULL) {
-          current_block->busy = true;
-          trapezoid_generator_reset();
-          counter_x = -(current_block->step_event_count >> 1);
-          counter_y = counter_x;
-          counter_z = counter_x;
-          counter_e = counter_x;
-          step_events_completed = 0;
-
-          // Set directions TO DO This should be done once during init of trapezoid (DONE!). Endstops -> interrupt
-          out_bits = current_block->direction_bits;
-      
-          // Set the direction bits (X_AXIS=A_AXIS and Y_AXIS=B_AXIS for COREXY)
-          if ((out_bits & (1<<X_AXIS)) != 0){
-              WRITE(X_DIR_PIN, INVERT_X_DIR);
-              count_direction[X_AXIS] = -1;
-          }
-          else {
-              WRITE(X_DIR_PIN, !INVERT_X_DIR);
-              count_direction[X_AXIS] = 1;
-          }
-      
-          if ((out_bits & (1<<Y_AXIS)) != 0){
-              WRITE(Y_DIR_PIN, INVERT_Y_DIR);
-              count_direction[Y_AXIS] = -1;
-          }
-          else {
-              WRITE(Y_DIR_PIN, !INVERT_Y_DIR);
-              count_direction[Y_AXIS] = 1;
-          }
-      
-          if ((out_bits & (1<<Z_AXIS)) != 0) {   // -direction
-              WRITE(Z_DIR_PIN,INVERT_Z_DIR);
-              count_direction[Z_AXIS] = -1;
-          }
-          else { // +direction
-              WRITE(Z_DIR_PIN,!INVERT_Z_DIR);
-              count_direction[Z_AXIS] = 1;
-          }
-#ifndef ADVANCE
-          if ((out_bits & (1<<E_AXIS)) != 0) {  // -direction
-              REV_E_DIR();
-              count_direction[E_AXIS] = -1;
-          }
-          else { // +direction
-              NORM_E_DIR();
-              count_direction[E_AXIS] = 1;
-          }
-#endif // ADVANCE
-
-        }
-        else {
+        if (current_block == NULL) {
             OCR1A=2000; // 1kHz.
             return; // returning if no valid block found.
         }
-    }
 
-    if (check_endstops) {
-#if defined(X_MIN_PIN) && X_MIN_PIN > -1
-        if ((out_bits & (1<<X_AXIS)) != 0 && (out_bits & (1<<Y_AXIS)) != 0) {   //-X occurs for -A and -B
-            bool x_min_endstop = (READ(X_MIN_PIN) != X_MIN_ENDSTOP_INVERTING);
-            if (x_min_endstop && old_x_min_endstop && (current_block->steps_x > 0)) {
-                endstops_trigsteps[X_AXIS] = count_position[X_AXIS];
-                endstop_x_hit=true;
-                step_events_completed = current_block->step_event_count;
-                old_x_min_endstop = x_min_endstop;
-                goto skip_movement;
-            }
-            old_x_min_endstop = x_min_endstop;
+        current_block->busy = true;
+        trapezoid_generator_reset();
+        counter_x = -(current_block->step_event_count >> 1);
+        counter_y = counter_x;
+        counter_z = counter_x;
+        counter_e = counter_x;
+        step_events_completed = 0;
+  
+        // Set directions TO DO This should be done once during init of trapezoid (DONE!). Endstops -> interrupt
+        out_bits = current_block->direction_bits;
+    
+        // Set the direction bits (X_AXIS=A_AXIS and Y_AXIS=B_AXIS for COREXY)
+        if ((out_bits & (1<<X_AXIS)) != 0) {
+            WRITE(X_DIR_PIN, INVERT_X_DIR);
+            count_direction[X_AXIS] = -1;
         }
-#endif
-#if defined(X_MAX_PIN) && X_MAX_PIN > -1
-        else { // +direction
-            bool x_max_endstop=(READ(X_MAX_PIN) != X_MAX_ENDSTOP_INVERTING);
-            if(x_max_endstop && old_x_max_endstop && (current_block->steps_x > 0)){
-                endstops_trigsteps[X_AXIS] = count_position[X_AXIS];
-                endstop_x_hit=true;
-                step_events_completed = current_block->step_event_count;
-                old_x_max_endstop = x_max_endstop;
-                goto skip_movement;
-            }
-            old_x_max_endstop = x_max_endstop;
-        }
-#endif
-#if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
-        if ((out_bits & (1<<X_AXIS)) != 0 && (out_bits & (1<<Y_AXIS)) == 0) { // -Y occurs for -A and +B
-            bool y_min_endstop=(READ(Y_MIN_PIN) != Y_MIN_ENDSTOP_INVERTING);
-            if(y_min_endstop && old_y_min_endstop && (current_block->steps_y > 0)) {
-                endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS];
-                endstop_y_hit=true;
-                step_events_completed = current_block->step_event_count;
-                goto skip_movement;
-            }
-            old_y_min_endstop = y_min_endstop;
-
-        }
-#endif
-#if defined(Y_MAX_PIN) && Y_MAX_PIN > -1
-        else { // +direction
-            bool y_max_endstop=(READ(Y_MAX_PIN) != Y_MAX_ENDSTOP_INVERTING);
-            if (y_max_endstop && old_y_max_endstop && (current_block->steps_y > 0)) {
-                endstops_trigsteps[Y_AXIS] = count_position[Y_AXIS];
-                endstop_y_hit=true;
-                step_events_completed = current_block->step_event_count;
-                old_y_max_endstop = y_max_endstop;
-                goto skip_movement;
-            }
-            old_y_max_endstop = y_max_endstop;
-        }
-#endif
-#if defined(Z_MIN_PIN) && Z_MIN_PIN > -1
-        if ((out_bits & (1<<Z_AXIS)) != 0) {
-            bool z_min_endstop = (READ(Z_MIN_PIN) != Z_MIN_ENDSTOP_INVERTING);
-            if (z_min_endstop && old_z_min_endstop && (current_block->steps_z > 0)) {
-                endstops_trigsteps[Z_AXIS] = count_position[Z_AXIS];
-                endstop_z_hit=true;
-                step_events_completed = current_block->step_event_count;
-                old_z_min_endstop = z_min_endstop;
-                goto skip_movement;
-            }
-            old_z_min_endstop = z_min_endstop;
-        }
-#endif
-#if defined(Z_MAX_PIN) && Z_MAX_PIN > -1
         else {
-            bool z_max_endstop = (READ(Z_MAX_PIN) != Z_MAX_ENDSTOP_INVERTING);
-            if (z_max_endstop && old_z_max_endstop && (current_block->steps_z > 0)) {
-                endstops_trigsteps[Z_AXIS] = count_position[Z_AXIS];
-                endstop_z_hit=true;
-                step_events_completed = current_block->step_event_count;
-                old_z_max_endstop = z_max_endstop;
-                goto skip_movement;
-            }
-            old_z_max_endstop = z_max_endstop;
+            WRITE(X_DIR_PIN, !INVERT_X_DIR);
+            count_direction[X_AXIS] = 1;
         }
-#endif
+    
+        if ((out_bits & (1<<Y_AXIS)) != 0) {
+            WRITE(Y_DIR_PIN, INVERT_Y_DIR);
+            count_direction[Y_AXIS] = -1;
+        }
+        else {
+            WRITE(Y_DIR_PIN, !INVERT_Y_DIR);
+            count_direction[Y_AXIS] = 1;
+        }
+    
+        if ((out_bits & (1<<Z_AXIS)) != 0) {   // -direction
+            WRITE(Z_DIR_PIN, INVERT_Z_DIR);
+            count_direction[Z_AXIS] = -1;
+        }
+        else { // +direction
+            WRITE(Z_DIR_PIN, !INVERT_Z_DIR);
+            count_direction[Z_AXIS] = 1;
+        }
+#ifndef ADVANCE
+        if ((out_bits & (1<<E_AXIS)) != 0) {  // -direction
+            REV_E_DIR();
+            count_direction[E_AXIS] = -1;
+        }
+        else { // +direction
+            NORM_E_DIR();
+            count_direction[E_AXIS] = 1;
+        }
+#endif // ADVANCE
     }
+
+    if (check_endstops)
+    {
+
+#if defined(X_MIN_PIN) && X_MIN_PIN > -1
+        bool x_min_endstop = (READ(X_MIN_PIN) != X_MIN_ENDSTOP_INVERTING);
+#else
+        bool x_min_endstop = false;
+#endif
+
+#if defined(X_MAX_PIN) && X_MAX_PIN > -1
+        bool x_max_endstop = (READ(X_MAX_PIN) != X_MAX_ENDSTOP_INVERTING);
+#else
+        bool x_max_endstop = false;
+#endif
+
+/********************************************/
+/********************************************/
+
+#if defined(Y_MIN_PIN) && Y_MIN_PIN > -1
+        bool y_min_endstop = (READ(Y_MIN_PIN) != Y_MIN_ENDSTOP_INVERTING);
+#else
+        bool y_min_endstop = false;
+#endif
+
+#if defined(Y_MAX_PIN) && Y_MAX_PIN > -1
+        bool y_max_endstop = (READ(Y_MAX_PIN) != Y_MAX_ENDSTOP_INVERTING);
+#else
+        bool y_max_endstop = false;
+#endif
+
+/********************************************/
+/********************************************/
+
+#if defined(Z_MIN_PIN) && Z_MIN_PIN > -1
+        bool z_min_endstop = (READ(Z_MIN_PIN) != Z_MIN_ENDSTOP_INVERTING);
+#else
+        bool z_min_endstop = false;
+#endif
+
+#if defined(Z_MAX_PIN) && Z_MAX_PIN > -1
+        bool z_max_endstop = (READ(Z_MAX_PIN) != Z_MAX_ENDSTOP_INVERTING);
+#else
+        bool z_max_endstop = false;
+#endif
+
+        // TODO: this should be investigated further..
+        bool moving_x = (current_block->steps_x > 1);
+        bool moving_y = (current_block->steps_y > 1);
+        //
+
+/*
+        // TODO: this should be investigated further..
+        bool moving_A = (current_block->steps_x > 1);
+        bool moving_B = (current_block->steps_y > 1);
+        //
+        bool decrem_A = COREXY_A_DEC(out_bits);
+        bool increm_A = COREXY_A_INC(out_bits);
+        bool decrem_B = COREXY_B_DEC(out_bits);
+        bool increm_B = COREXY_B_INC(out_bits);
+
+        if (moving_A && !moving_B && decrem_A) { // -X +Y
+            if (x_min_endstop)
+                MARK_X_ENDSTOP_HIT(true);
+            if (y_max_endstop)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+        else if (moving_B && !moving_A && decrem_B) { // -X -Y
+            if (x_min_endstop)
+                MARK_X_ENDSTOP_HIT(true);
+            if (y_min_endstop)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+        else if (moving_A && !moving_B && increm_A) { // +X -Y
+            if (x_max_endstop)
+                MARK_X_ENDSTOP_HIT(true);
+            if (y_min_endstop)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+        else if (moving_B && !moving_A && increm_B) { // +X +Y
+            if (x_max_endstop)
+                MARK_X_ENDSTOP_HIT(true);
+            if (y_max_endstop)
+                MARK_Y_ENDSTOP_HIT(true);            
+        }
+        else if (moving_A && moving_B && increm_A && increm_B) { // +X
+            if (x_max_endstop)
+                MARK_X_ENDSTOP_HIT(true);
+        }
+        else if (moving_A && moving_B && decrem_A && decrem_B) { // -X
+            if (x_min_endstop)
+                MARK_X_ENDSTOP_HIT(true);
+        }
+        else if (moving_A && moving_B && decrem_A && increm_B) { // +Y
+            if (y_max_endstop)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+        else if (moving_A && moving_B && increm_A && decrem_B) { // -Y
+            if (y_min_endstop)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+*/
+
+        if (COREXY_A_DEC(out_bits) && COREXY_B_DEC(out_bits)) {
+            if (x_min_endstop && moving_x)
+                MARK_X_ENDSTOP_HIT(true);
+        }
+        else {
+            if (x_max_endstop && moving_x)
+                MARK_X_ENDSTOP_HIT(true);
+        }
+
+        if (COREXY_A_DEC(out_bits) && COREXY_B_INC(out_bits)) {
+            if (y_min_endstop && moving_y)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+        else {
+            if (y_max_endstop && moving_y)
+                MARK_Y_ENDSTOP_HIT(true);
+        }
+
+
+        if (MOVEMENT_Z_MINUS(out_bits)) {
+            if (z_min_endstop && current_block->steps_z > 0)
+                MARK_Z_ENDSTOP_HIT(true);
+        }
+        else if (MOVEMENT_Z_PLUS(out_bits)) {
+            if (z_max_endstop && current_block->steps_z > 0) {
+                MARK_Z_ENDSTOP_HIT(true);
+            }
+        }   
 
 #if defined(EXTERNAL_ENDSTOP_Z_PROBING)
-    CHECK_EXTERNAL_Z_ENDSTOPS
-    {
-        bool external_endstop = (READ(EXTERNAL_ENDSTOP_Z_PROBING_PIN) != EXTERNAL_Z_ENDSTOP_INVERTING);
-        if (external_endstop && old_external_z_endstop && (current_block->steps_z > 0)) {
-            endstops_trigsteps[Z_AXIS] = count_position[Z_AXIS];
-            endstop_z_hit=true;
-            step_events_completed = current_block->step_event_count;
-            old_external_z_endstop = external_endstop;
-            goto skip_movement;
-       }
-       old_external_z_endstop = external_endstop;
-    }
+        CHECK_EXTERNAL_Z_ENDSTOPS
+        {
+            bool external_endstop = (READ(EXTERNAL_ENDSTOP_Z_PROBING_PIN) != EXTERNAL_Z_ENDSTOP_INVERTING);
+            if (external_endstop && current_block->steps_z > 0)
+                MARK_Z_ENDSTOP_HIT(true);
+        }
 #endif
+        if (endstop_x_hit || endstop_y_hit || endstop_z_hit) {
+            goto skip_movement;
+        }
+
+    }
 
     for (int8_t i = 0; i < step_loops; i++) { // Take multiple steps per interrupt (For high speed moves)
-
-        counter_x += current_block->steps_x;
-        if (counter_x > 0) {
-            WRITE(X_STEP_PIN, !INVERT_X_STEP_PIN);
-      
-            counter_x -= current_block->step_event_count;
-            count_position[X_AXIS] += count_direction[X_AXIS];   
-
-            WRITE(X_STEP_PIN, INVERT_X_STEP_PIN);
-        }
-
-        counter_y += current_block->steps_y;
-        if (counter_y > 0) {
-          WRITE(Y_STEP_PIN, !INVERT_Y_STEP_PIN);
+        //if (!endstop_x_hit) {
+            counter_x += current_block->steps_x;
+            if (counter_x > 0) {
+                WRITE(X_STEP_PIN, !INVERT_X_STEP_PIN);
           
-          counter_y -= current_block->step_event_count;
-          count_position[Y_AXIS] += count_direction[Y_AXIS];
+                counter_x -= current_block->step_event_count;
+                count_position[X_AXIS] += count_direction[X_AXIS];   
+    
+                WRITE(X_STEP_PIN, INVERT_X_STEP_PIN);
+            }
+        //}
 
-          WRITE(Y_STEP_PIN, INVERT_Y_STEP_PIN);
-        }
+        //if (!endstop_y_hit) {
+              counter_y += current_block->steps_y;
+              if (counter_y > 0) {
+                WRITE(Y_STEP_PIN, !INVERT_Y_STEP_PIN);
+                
+                counter_y -= current_block->step_event_count;
+                count_position[Y_AXIS] += count_direction[Y_AXIS];
+      
+                WRITE(Y_STEP_PIN, INVERT_Y_STEP_PIN);
+            }
+        //}
 
-        counter_z += current_block->steps_z;
-        if (counter_z > 0) {
-          WRITE(Z_STEP_PIN, !INVERT_Z_STEP_PIN);
-            
-          counter_z -= current_block->step_event_count;
-          count_position[Z_AXIS] += count_direction[Z_AXIS];
-
-          WRITE(Z_STEP_PIN, INVERT_Z_STEP_PIN);
-        }
+        //if (!endstop_z_hit) {
+            counter_z += current_block->steps_z;
+            if (counter_z > 0) {
+                WRITE(Z_STEP_PIN, !INVERT_Z_STEP_PIN);
+                  
+                counter_z -= current_block->step_event_count;
+                count_position[Z_AXIS] += count_direction[Z_AXIS];
+      
+                WRITE(Z_STEP_PIN, INVERT_Z_STEP_PIN);
+            }
+        //}
 
 #ifndef ADVANCE
         counter_e += current_block->steps_e;
@@ -535,8 +599,7 @@ ISR(TIMER1_COMPA_vect)
         }
 #endif //!ADVANCE
 
-        step_events_completed += 1;
-        if (step_events_completed >= current_block->step_event_count)
+        if (++step_events_completed >= current_block->step_event_count)
             break;
     }
 
@@ -545,13 +608,13 @@ ISR(TIMER1_COMPA_vect)
     unsigned short step_rate;
 
     if (step_events_completed <= current_block->accelerate_until) {
-
+      // acc_step_rate = (acceleration_time * current_block->acceleration_rate) >> 24
       MultiU24X24toH16(acc_step_rate, acceleration_time, current_block->acceleration_rate);
       acc_step_rate += current_block->initial_rate;
 
       // upper limit
-      if(acc_step_rate > current_block->nominal_rate)
-        acc_step_rate = current_block->nominal_rate;
+      if (acc_step_rate > current_block->nominal_rate)
+          acc_step_rate = current_block->nominal_rate;
 
       // step_rate to timer interval
       timer = calc_timer(acc_step_rate);
@@ -560,6 +623,7 @@ ISR(TIMER1_COMPA_vect)
 
     }
     else if (step_events_completed > current_block->decelerate_after) {
+      // step_rate = (deceleration_time * current_block->acceleration_rate) >> 24
         MultiU24X24toH16(step_rate, deceleration_time, current_block->acceleration_rate);
 
         if(step_rate > acc_step_rate) { // Check step_rate stays positive
